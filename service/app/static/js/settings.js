@@ -369,3 +369,275 @@ window.gcApi = api;
 loadCameras();
 loadCredentials();
 loadSystem();
+
+// ---- Grid builder ----------------------------------------------------------
+// Named layouts are a first-class resource (GET/POST/DELETE /api/layouts). This
+// section picks the active layout and edits saved ones with a touch-friendly
+// preview. Wrapped in an IIFE so its helpers never leak into discovery.js.
+(() => {
+  'use strict';
+  const MAX_SPAN = 6;
+  const WIDE_ASPECT = 2.4;
+
+  const activeSel = document.getElementById('gc-layout-active');
+  const builder = document.getElementById('gc-builder');
+  if (!activeSel || !builder) return;
+
+  const preview = document.getElementById('gc-builder-preview');
+  const chipsBox = document.getElementById('gc-builder-chips');
+  const nameInput = document.getElementById('gc-builder-name');
+  const msgEl = document.getElementById('gc-builder-msg');
+  const colsVal = document.getElementById('gc-cols-val');
+  const rowsVal = document.getElementById('gc-rows-val');
+  const saveBtn = document.getElementById('gc-builder-save');
+
+  let layoutsCache = [];
+  let activeId = 'auto';
+  // The layout being built. cells: [{camera_id, col, row, w, h}].
+  const state = { editingId: null, cols: 3, rows: 2, cells: [], chip: null };
+
+  function notifyGridTabs() {
+    // Fires a storage event in the grid tab (kiosk or another browser) so it
+    // re-renders. The setting tab does not receive its own storage event.
+    try { localStorage.setItem('gc-layout-changed', String(Date.now())); } catch (e) { /* private mode */ }
+  }
+
+  function camById(id) { return (cameraCache || []).find((c) => c.id === id); }
+
+  function camAspect(cam) {
+    const res = (cam && cam.sub_url && cam.sub_resolution) ? cam.sub_resolution
+      : (cam && (cam.main_resolution || cam.sub_resolution));
+    if (Array.isArray(res) && res[0] > 0 && res[1] > 0) return res[0] / res[1];
+    return 16 / 9;
+  }
+
+  // ---- Active layout picker ------------------------------------------------
+
+  async function loadLayouts() {
+    const { ok, data } = await api('GET', '/api/layouts');
+    layoutsCache = ok && data && Array.isArray(data.layouts) ? data.layouts : [];
+    activeId = (ok && data && data.active) || 'auto';
+    renderPicker();
+  }
+
+  function renderPicker() {
+    const opts = ['<option value="auto">Automatic</option>'];
+    for (const l of layoutsCache) {
+      opts.push(`<option value="${escapeAttr(l.id)}">${escapeHtml(l.name)}</option>`);
+    }
+    activeSel.innerHTML = opts.join('');
+    activeSel.value = layoutsCache.some((l) => l.id === activeId) ? activeId : 'auto';
+  }
+
+  document.getElementById('gc-layout-activate').addEventListener('click', async () => {
+    const { ok } = await api('POST', '/api/layouts/active', { id: activeSel.value });
+    if (ok) { activeId = activeSel.value; notifyGridTabs(); flash(document.getElementById('gc-layout-activate'), true); }
+  });
+
+  document.getElementById('gc-layout-delete').addEventListener('click', async () => {
+    const id = activeSel.value;
+    if (id === 'auto') { alert('Automatic cannot be deleted.'); return; }
+    const l = layoutsCache.find((x) => x.id === id);
+    if (!confirm(`Delete layout "${l ? l.name : id}"?`)) return;
+    const { ok } = await api('DELETE', `/api/layouts/${id}`);
+    if (ok) { closeBuilder(); await loadLayouts(); notifyGridTabs(); }
+  });
+
+  document.getElementById('gc-layout-new').addEventListener('click', () => {
+    state.editingId = null;
+    state.cols = 3; state.rows = 2; state.cells = []; state.chip = null;
+    nameInput.value = '';
+    openBuilder();
+  });
+
+  document.getElementById('gc-layout-edit').addEventListener('click', () => {
+    const id = activeSel.value;
+    const l = layoutsCache.find((x) => x.id === id);
+    if (!l) { alert('Pick a saved layout to edit, or choose New layout.'); return; }
+    state.editingId = l.id;
+    state.cols = l.cols; state.rows = l.rows;
+    state.cells = (l.cells || []).map((c) => ({ ...c }));
+    state.chip = null;
+    nameInput.value = l.name || '';
+    openBuilder();
+  });
+
+  document.getElementById('gc-builder-cancel').addEventListener('click', closeBuilder);
+
+  function openBuilder() { builder.classList.remove('d-none'); renderBuilder(); }
+  function closeBuilder() { builder.classList.add('d-none'); state.chip = null; }
+
+  // ---- Steppers ------------------------------------------------------------
+
+  builder.querySelectorAll('.gc-stepper').forEach((box) => {
+    const which = box.dataset.step;   // "cols" or "rows"
+    box.querySelectorAll('button').forEach((b) => {
+      b.addEventListener('click', () => {
+        const next = Math.min(MAX_SPAN, Math.max(1, state[which] + parseInt(b.dataset.d, 10)));
+        if (next === state[which]) return;
+        state[which] = next;
+        // Drop any tile that no longer fits the smaller grid.
+        state.cells = state.cells.filter((c) => c.col + c.w <= state.cols && c.row + c.h <= state.rows);
+        renderBuilder();
+      });
+    });
+  });
+
+  // ---- Occupancy + placement rules (mirror of the backend validator) -------
+
+  function occupancy(exclude) {
+    const occ = new Set();
+    for (const c of state.cells) {
+      if (c === exclude) continue;
+      for (let cc = c.col; cc < c.col + c.w; cc++) {
+        for (let rr = c.row; rr < c.row + c.h; rr++) occ.add(`${cc},${rr}`);
+      }
+    }
+    return occ;
+  }
+
+  function free(col, row, w, occ) {
+    if (col < 0 || row < 0 || col + w > state.cols || row + 1 > state.rows) return false;
+    for (let cc = col; cc < col + w; cc++) if (occ.has(`${cc},${row}`)) return false;
+    return true;
+  }
+
+  function placeChip(col, row) {
+    if (!state.chip) return;
+    if (state.cells.some((c) => c.camera_id === state.chip)) return;  // already placed
+    const occ = occupancy();
+    const cam = camById(state.chip);
+    // Ultrawide cameras default to double width when the room is there.
+    let w = 1;
+    if (cam && camAspect(cam) >= WIDE_ASPECT && free(col, row, 2, occ)) w = 2;
+    if (!free(col, row, w, occ)) return;
+    state.cells.push({ camera_id: state.chip, col, row, w, h: 1 });
+    state.chip = null;
+    renderBuilder();
+  }
+
+  function toggleWidth(cell) {
+    const occ = occupancy(cell);
+    if (cell.w === 1) { if (free(cell.col, cell.row, 2, occ)) cell.w = 2; }
+    else { cell.w = 1; }
+    renderBuilder();
+  }
+
+  function removeCell(cell) {
+    state.cells = state.cells.filter((c) => c !== cell);
+    renderBuilder();
+  }
+
+  // ---- Render --------------------------------------------------------------
+
+  function renderBuilder() {
+    colsVal.textContent = state.cols;
+    rowsVal.textContent = state.rows;
+    preview.style.setProperty('--gc-b-cols', state.cols);
+    preview.style.setProperty('--gc-b-rows', state.rows);
+    preview.innerHTML = '';
+
+    const occ = occupancy();
+    // Placed tiles.
+    for (const cell of state.cells) {
+      const cam = camById(cell.camera_id);
+      const el = document.createElement('div');
+      el.className = 'gc-b-tile';
+      el.style.gridArea = `${cell.row + 1} / ${cell.col + 1} / span ${cell.h} / span ${cell.w}`;
+      el.innerHTML = `<span>${escapeHtml(cam ? cam.name : 'Camera')}</span>` +
+        `<span class="gc-b-tile-ctrls">` +
+        `<button type="button" data-act="width">${cell.w === 2 ? 'Narrow' : 'Wide'}</button>` +
+        `<button type="button" data-act="remove">&times;</button></span>`;
+      el.addEventListener('click', (e) => {
+        const act = e.target && e.target.dataset ? e.target.dataset.act : null;
+        if (act === 'width') { toggleWidth(cell); return; }
+        if (act === 'remove') { removeCell(cell); return; }
+        // Tap the tile body: reveal its controls (and close any other open one).
+        preview.querySelectorAll('.gc-b-tile.gc-b-open').forEach((t) => { if (t !== el) t.classList.remove('gc-b-open'); });
+        el.classList.toggle('gc-b-open');
+      });
+      preview.append(el);
+    }
+    // Empty cells fill every free slot so any spot is tappable.
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        if (occ.has(`${c},${r}`)) continue;
+        const el = document.createElement('div');
+        el.className = 'gc-b-cell';
+        el.style.gridArea = `${r + 1} / ${c + 1} / span 1 / span 1`;
+        if (state.chip) el.classList.add('gc-b-target');
+        el.addEventListener('click', () => placeChip(c, r));
+        preview.append(el);
+      }
+    }
+
+    renderChips();
+    validate();
+  }
+
+  function renderChips() {
+    chipsBox.innerHTML = '';
+    const enabled = (cameraCache || []).filter((c) => c.enabled !== false);
+    if (!enabled.length) {
+      chipsBox.innerHTML = '<span class="text-secondary small">Add a camera first.</span>';
+      return;
+    }
+    for (const cam of enabled) {
+      const placed = state.cells.some((c) => c.camera_id === cam.id);
+      const chip = document.createElement('span');
+      chip.className = 'gc-chip' + (placed ? ' gc-chip-placed' : '') +
+        (state.chip === cam.id ? ' gc-chip-selected' : '');
+      chip.textContent = cam.name;
+      if (!placed) {
+        chip.addEventListener('click', () => {
+          state.chip = state.chip === cam.id ? null : cam.id;
+          renderBuilder();
+        });
+      }
+      chipsBox.append(chip);
+    }
+  }
+
+  function validate() {
+    let problem = '';
+    if (!nameInput.value.trim()) problem = 'Give the layout a name.';
+    else if (!state.cells.length) problem = 'Place at least one camera.';
+    else {
+      const occ = new Set();
+      for (const c of state.cells) {
+        if (c.col < 0 || c.row < 0 || c.col + c.w > state.cols || c.row + c.h > state.rows) { problem = 'A tile falls outside the grid.'; break; }
+        for (let cc = c.col; cc < c.col + c.w; cc++) {
+          for (let rr = c.row; rr < c.row + c.h; rr++) {
+            const k = `${cc},${rr}`;
+            if (occ.has(k)) { problem = 'Two tiles overlap.'; }
+            occ.add(k);
+          }
+        }
+      }
+    }
+    msgEl.textContent = problem;
+    saveBtn.disabled = !!problem;
+    return !problem;
+  }
+
+  nameInput.addEventListener('input', validate);
+
+  saveBtn.addEventListener('click', async () => {
+    if (!validate()) return;
+    const payload = {
+      name: nameInput.value.trim(),
+      cols: state.cols, rows: state.rows,
+      cells: state.cells.map((c) => ({ ...c })),
+    };
+    if (state.editingId) payload.id = state.editingId;
+    const { ok, data } = await api('POST', '/api/layouts', payload);
+    if (!ok) { msgEl.textContent = (data && data.detail) || 'Could not save the layout.'; return; }
+    closeBuilder();
+    await loadLayouts();
+    activeSel.value = data.id;
+    notifyGridTabs();
+    flash(saveBtn, true);
+  });
+
+  loadLayouts();
+})();

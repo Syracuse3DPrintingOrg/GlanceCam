@@ -323,3 +323,110 @@ html, body {
 .gc-inline-edit {
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* ---- Grid builder ---------------------------------------------------- */
+
+.gc-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gc-stepper-val {
+  min-width: 1.4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A proportional stand-in for the display: a 16:9 box holding the cell grid,
+   so placement looks the way it will on the real screen. */
+.gc-builder-preview {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  grid-template-columns: repeat(var(--gc-b-cols, 3), 1fr);
+  grid-template-rows: repeat(var(--gc-b-rows, 2), 1fr);
+}
+
+/* An empty slot: tap to drop the selected camera. */
+.gc-b-cell {
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.gc-b-cell.gc-b-target {
+  border-color: var(--gc-accent);
+  background: rgba(127, 209, 255, 0.12);
+}
+
+/* A placed tile: shows the camera name and, on tap, its width and remove
+   controls. */
+.gc-b-tile {
+  position: relative;
+  border: 1px solid rgba(127, 209, 255, 0.5);
+  border-radius: 4px;
+  background: rgba(127, 209, 255, 0.1);
+  color: #dff1ff;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2px 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.gc-b-tile.gc-b-selected {
+  border-color: var(--gc-accent);
+  background: rgba(127, 209, 255, 0.22);
+}
+.gc-b-tile-ctrls {
+  position: absolute;
+  inset: auto 2px 2px auto;
+  display: none;
+  gap: 3px;
+}
+.gc-b-tile.gc-b-open .gc-b-tile-ctrls {
+  display: flex;
+}
+.gc-b-tile-ctrls button {
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+
+.gc-builder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gc-chip {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e8e8e8;
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.gc-chip.gc-chip-selected {
+  border-color: var(--gc-accent);
+  background: rgba(127, 209, 255, 0.18);
+  color: #fff;
+}
+.gc-chip.gc-chip-placed {
+  opacity: 0.45;
+  cursor: default;
+}

@@ -54,14 +54,89 @@ function camAspect(cam) {
   return 16 / 9;
 }
 
-function applyLayout(entries) {
-  const n = entries.length;
-  if (!n) return;
-  const aspects = entries.map(e => camAspect(e.cam));
-  const avg = aspects.reduce((a, b) => a + b, 0) / aspects.length;
-  const { cols, rows } = chooseLayout(n, window.innerWidth, window.innerHeight, avg);
-  grid.style.setProperty('--gc-cols', cols);
-  grid.style.setProperty('--gc-rows', rows);
+// A camera this wide (Reolink Duo ~32:9, some panels 21:9) reads better as a
+// double-width tile than squeezed into a single 16:9 cell.
+const WIDE_ASPECT = 2.4;
+
+// Automatic mixed-aspect packing (mirrored by a Python twin in
+// tests/test_grid_pack.py). Wide cameras take a 2-column, 1-row cell; the rest
+// are 1x1. Choose the cols/rows split that makes tiles largest (same area rule
+// as chooseLayout, measured for a normal 16:9 tile in one cell), place the wide
+// tiles first across the top rows, then fill the gaps with normal tiles.
+export function packAuto(cameras, w, h) {
+  const wide = cameras.filter(c => (c.aspect || 16 / 9) >= WIDE_ASPECT);
+  const normal = cameras.filter(c => (c.aspect || 16 / 9) < WIDE_ASPECT);
+  const demand = 2 * wide.length + normal.length;
+  if (demand <= 0) return { cols: 1, rows: 1, cells: [] };
+  if (!(w > 0) || !(h > 0)) { w = 16; h = 9; }
+  const target = w / h;
+  const aspect = 16 / 9;
+
+  const place = (cols) => {
+    const occ = [];
+    const ensure = (r) => { while (occ.length <= r) occ.push(new Array(cols).fill(false)); };
+    const cells = [];
+    for (const cam of wide) {
+      let r = 0;
+      // eslint-disable-next-line no-constant-condition
+      for (;;) {
+        ensure(r);
+        let placed = false;
+        for (let c = 0; c + 1 < cols; c++) {
+          if (!occ[r][c] && !occ[r][c + 1]) {
+            occ[r][c] = occ[r][c + 1] = true;
+            cells.push({ camera_id: cam.camera_id, col: c, row: r, w: 2, h: 1 });
+            placed = true; break;
+          }
+        }
+        if (placed) break;
+        r++;
+      }
+    }
+    for (const cam of normal) {
+      let r = 0;
+      for (;;) {
+        ensure(r);
+        let placed = false;
+        for (let c = 0; c < cols; c++) {
+          if (!occ[r][c]) {
+            occ[r][c] = true;
+            cells.push({ camera_id: cam.camera_id, col: c, row: r, w: 1, h: 1 });
+            placed = true; break;
+          }
+        }
+        if (placed) break;
+        r++;
+      }
+    }
+    return { cells, rows: occ.length };
+  };
+
+  const minCols = wide.length ? 2 : 1;
+  let best = null;
+  for (let cols = minCols; cols <= demand; cols++) {
+    const { cells, rows } = place(cols);
+    const cellW = w / cols;
+    const cellH = h / rows;
+    let tileW, tileH;
+    if (cellW / cellH > aspect) { tileH = cellH; tileW = cellH * aspect; }
+    else { tileW = cellW; tileH = cellW / aspect; }
+    const area = tileW * tileH;
+    const cand = { cols, rows, area, cells };
+    if (!best || area > best.area * 1.005) { best = cand; continue; }
+    if (area >= best.area * 0.995) {
+      const dCand = Math.abs(cols / rows - target);
+      const dBest = Math.abs(best.cols / best.rows - target);
+      if (dCand < dBest - 1e-9) { best = cand; continue; }
+      if (Math.abs(dCand - dBest) < 1e-9 && cols * rows < best.cols * best.rows) best = cand;
+    }
+  }
+  return { cols: best.cols, rows: best.rows, cells: best.cells };
+}
+
+// Position one tile in the CSS grid from a placement cell (0-based col/row).
+function placeTile(el, cell) {
+  el.style.gridArea = `${cell.row + 1} / ${cell.col + 1} / span ${cell.h || 1} / span ${cell.w || 1}`;
 }
 
 // ---- Stream helpers --------------------------------------------------------
@@ -291,32 +366,140 @@ async function checkHealth() {
   } catch (e) { /* a missing endpoint is not worth a banner */ }
 }
 
-async function init() {
-  if (!grid) return;
-  let cams;
-  try {
-    const r = await fetch('/api/cameras');
-    cams = r.ok ? await r.json() : null;
-  } catch (e) { cams = null; }
-  if (!Array.isArray(cams)) return;         // keep the server-rendered fallback
+// ---- Placement: turn cameras + the active layout into positioned cells ------
 
-  cams = cams.filter(c => c.enabled !== false)
-             .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+// Resolve the placements for the current render. In "auto" the packer sizes and
+// positions every enabled camera; with a saved layout only its listed cells are
+// shown (a layout is a deliberate subset), and a cell whose camera is gone or
+// disabled is skipped. Returns { cols, rows, placements:[{cam, cell}] }.
+function resolvePlacements(cams, layoutDoc) {
+  const byId = new Map(cams.map(c => [c.id, c]));
+  const active = layoutDoc && layoutDoc.active;
+  const saved = active && active !== 'auto'
+    ? (layoutDoc.layouts || []).find(l => l.id === active) : null;
 
+  if (saved) {
+    const placements = [];
+    for (const cell of saved.cells || []) {
+      const cam = byId.get(cell.camera_id);
+      if (cam && cam.enabled !== false) placements.push({ cam, cell });
+    }
+    return { cols: saved.cols, rows: saved.rows, placements, mode: 'saved' };
+  }
+
+  const packed = packAuto(
+    cams.map(c => ({ camera_id: c.id, aspect: camAspect(c) })),
+    window.innerWidth, window.innerHeight);
+  const placements = packed.cells
+    .map(cell => ({ cam: byId.get(cell.camera_id), cell }))
+    .filter(p => p.cam);
+  return { cols: packed.cols, rows: packed.rows, placements, mode: 'auto' };
+}
+
+function applyGrid(cols, rows) {
+  grid.style.setProperty('--gc-cols', cols);
+  grid.style.setProperty('--gc-rows', rows);
+}
+
+// ---- Render (re-runnable so an edited layout re-renders) --------------------
+
+let entries = [];
+let limit = 9;
+let layoutSig = null;   // detect a layout change on focus without a needless rebuild
+
+function teardown() {
+  if (fullscreenEntry) exitFullscreen(entries);
+  for (const entry of entries) { detachStream(entry); clearSnapshot(entry); cancelMainUpgrade(entry); }
+  entries = [];
   grid.innerHTML = '';
+}
+
+async function render(cams, layoutDoc) {
+  teardown();
+
   if (cams.length === 0) {
     grid.innerHTML = '<div class="gc-empty"><p>No cameras yet.</p>' +
       '<a class="btn btn-primary" href="/settings">Add a camera</a></div>';
     return;
   }
 
-  const entries = cams.map(buildTile);
-  applyLayout(entries);
+  const { cols, rows, placements } = resolvePlacements(cams, layoutDoc);
+  applyGrid(cols, rows);
 
-  const limit = await loadBudget(IS_KIOSK ? 'kiosk' : 'remote');
+  if (placements.length === 0) {
+    grid.innerHTML = '<div class="gc-empty"><p>This layout has no cameras yet.</p>' +
+      '<a class="btn btn-primary" href="/settings#grid">Edit the layout</a></div>';
+    return;
+  }
+
+  entries = placements.map(({ cam, cell }) => {
+    const entry = buildTile(cam);
+    placeTile(entry.el, cell);
+    entry.cell = cell;
+    return entry;
+  });
+
+  limit = await loadBudget(IS_KIOSK ? 'kiosk' : 'remote');
   entries.forEach((entry, i) => {
     if (i < limit) goLive(entry); else goPaused(entry);
   });
+}
+
+// Auto mode depends on the viewport, so re-pack on resize. Reposition the
+// existing tiles in place instead of rebuilding, so streams never re-dial.
+function repackAuto(cams, layoutDoc) {
+  if (!entries.length) return;
+  if (layoutDoc && layoutDoc.active && layoutDoc.active !== 'auto') return;  // saved layout is fixed
+  const { cols, rows, placements } = resolvePlacements(cams, layoutDoc);
+  applyGrid(cols, rows);
+  const byCam = new Map(placements.map(p => [p.cam.id, p.cell]));
+  for (const entry of entries) {
+    const cell = byCam.get(entry.cam.id);
+    if (cell) { placeTile(entry.el, cell); entry.cell = cell; }
+  }
+}
+
+// ---- Data + lifecycle -------------------------------------------------------
+
+async function fetchCameras() {
+  try {
+    const r = await fetch('/api/cameras');
+    const cams = r.ok ? await r.json() : null;
+    if (!Array.isArray(cams)) return null;
+    return cams.filter(c => c.enabled !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  } catch (e) { return null; }
+}
+
+async function fetchLayouts() {
+  try {
+    const r = await fetch('/api/layouts');
+    return r.ok ? await r.json() : { active: 'auto', layouts: [] };
+  } catch (e) { return { active: 'auto', layouts: [] }; }
+}
+
+function signature(layoutDoc) {
+  const active = (layoutDoc && layoutDoc.active) || 'auto';
+  if (active === 'auto') return 'auto';
+  const l = (layoutDoc.layouts || []).find(x => x.id === active);
+  return JSON.stringify({ active, l });   // active id plus the active layout's shape
+}
+
+let lastCams = [];
+let lastLayouts = { active: 'auto', layouts: [] };
+
+async function refresh(force) {
+  const [cams, layoutDoc] = await Promise.all([fetchCameras(), fetchLayouts()]);
+  if (cams === null) return;   // keep the server-rendered fallback on a fetch miss
+  const sig = signature(layoutDoc) + '|' + cams.map(c => c.id + (c.enabled === false ? 'x' : '')).join(',');
+  if (!force && sig === layoutSig) return;
+  layoutSig = sig;
+  lastCams = cams;
+  lastLayouts = layoutDoc;
+  await render(cams, layoutDoc);
+}
+
+async function init() {
+  if (!grid) return;
 
   grid.addEventListener('click', (e) => {
     const tileDiv = e.target.closest('.gc-tile');
@@ -331,8 +514,6 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && fullscreenEntry) exitFullscreen(entries);
   });
-
-  // Keep our CSS state in step if the browser drops OS fullscreen (Esc).
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fullscreenEntry) exitFullscreen(entries);
   });
@@ -340,10 +521,18 @@ async function init() {
   let resizeTID = 0;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTID);
-    resizeTID = setTimeout(() => applyLayout(entries), 120);
+    resizeTID = setTimeout(() => repackAuto(lastCams, lastLayouts), 120);
   });
-  window.addEventListener('orientationchange', () => applyLayout(entries));
+  window.addEventListener('orientationchange', () => repackAuto(lastCams, lastLayouts));
 
+  // Re-render when the layout is edited in settings (another tab fires a
+  // storage event), and re-check on focus in case an edit happened while away.
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'gc-layout-changed') refresh(true);
+  });
+  window.addEventListener('focus', () => refresh(false));
+
+  await refresh(true);
   checkHealth();
 }
 

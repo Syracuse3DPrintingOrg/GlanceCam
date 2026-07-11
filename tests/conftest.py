@@ -24,6 +24,7 @@ def data_dir(tmp_path, monkeypatch):
     from app.config import settings
     from app.services import cameras as camera_store
     from app.services import credentials as cred_store
+    from app.services import layouts as layout_store
 
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
     # The stores cache a StateFile bound to a data_dir path; clear them so they
@@ -32,4 +33,6 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(camera_store, "_store_path", None)
     monkeypatch.setattr(cred_store, "_store", None)
     monkeypatch.setattr(cred_store, "_store_path", None)
+    monkeypatch.setattr(layout_store, "_store", None)
+    monkeypatch.setattr(layout_store, "_store_path", None)
     return tmp_path

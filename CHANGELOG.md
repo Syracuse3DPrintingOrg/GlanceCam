@@ -9,6 +9,13 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
 
 ### Added
 
+- **Grid layouts you design.** A new Grid section in settings lets you arrange
+  tiles by hand: set the columns and rows, then tap a camera and tap a cell to
+  place it. Save as many named layouts as you like and switch the display
+  between them. Automatic stays the default and now sizes and places tiles by
+  itself, giving ultrawide cameras (like the Reolink Duo) double width so they
+  are not squeezed into a single square. Editing a layout updates any open grid
+  right away.
 - **First look at GlanceCam.** A minimalist, LAN-only camera viewer that
   shows all your IP cameras in one grid you can glance at. Add a camera by its
   RTSP or snapshot address, and it appears live on the grid. Click any tile to

@@ -142,6 +142,58 @@
         </form>
       </section>
 
+      <section id="grid" class="mb-4">
+        <h2 class="h5">Grid</h2>
+        <p class="text-secondary small">Choose how tiles are arranged on the display.</p>
+        <div class="border rounded p-3">
+          <div class="mb-3">
+            <label class="form-label small">Active layout</label>
+            <div class="d-flex gap-2">
+              <select class="form-select" id="gc-layout-active"></select>
+              <button class="btn btn-primary" id="gc-layout-activate" type="button">Activate</button>
+            </div>
+            <div class="form-text small" id="gc-layout-note">Automatic sizes and places tiles by itself; ultrawide cameras get double width.</div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" id="gc-layout-new" type="button">New layout</button>
+            <button class="btn btn-outline-secondary btn-sm" id="gc-layout-edit" type="button">Edit</button>
+            <button class="btn btn-outline-danger btn-sm" id="gc-layout-delete" type="button">Delete</button>
+          </div>
+
+          <!-- The builder: a proportional preview of the display, cols/rows
+               steppers, and the camera chips. Tap a chip then a cell to place
+               it; tap a placed tile for its width and remove controls. -->
+          <div id="gc-builder" class="gc-builder d-none mt-3">
+            <div class="mb-2">
+              <label class="form-label small">Name</label>
+              <input class="form-control form-control-sm" id="gc-builder-name" placeholder="Front of house">
+            </div>
+            <div class="d-flex gap-4 mb-2">
+              <div class="gc-stepper" data-step="cols">
+                <span class="small text-secondary">Columns</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-d="-1">&minus;</button>
+                <span class="gc-stepper-val" id="gc-cols-val">3</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-d="1">+</button>
+              </div>
+              <div class="gc-stepper" data-step="rows">
+                <span class="small text-secondary">Rows</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-d="-1">&minus;</button>
+                <span class="gc-stepper-val" id="gc-rows-val">2</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-d="1">+</button>
+              </div>
+            </div>
+            <div class="gc-builder-preview" id="gc-builder-preview"></div>
+            <div class="small text-secondary mt-2" id="gc-builder-hint">Tap a camera, then tap a cell to place it.</div>
+            <div class="gc-builder-chips mt-1" id="gc-builder-chips"></div>
+            <div class="small text-danger mt-1" id="gc-builder-msg"></div>
+            <div class="mt-2 d-flex gap-2">
+              <button class="btn btn-primary btn-sm" id="gc-builder-save" type="button">Save layout</button>
+              <button class="btn btn-outline-secondary btn-sm" id="gc-builder-cancel" type="button">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="system" class="mb-4">
         <h2 class="h5">System</h2>
         <div id="gc-system" class="border rounded p-3 small text-secondary">

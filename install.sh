@@ -436,15 +436,17 @@ install_kiosk() {
   loginctl enable-linger "$kuser" 2>/dev/null || true
   systemctl disable getty@tty1.service 2>/dev/null || true
 
-  # seatd's install creates the "_seatd" group on Debian/Raspberry Pi OS;
-  # fall back to "seatd" in case a distro names it without the underscore.
+  # Some distros ship seatd with a dedicated "_seatd"/"seatd" group; current
+  # Raspberry Pi OS (trixie) ships none and gates the socket on "video"
+  # instead. Grant whichever exists, plus video/render for direct DRM/GPU.
   if getent group _seatd >/dev/null 2>&1; then
     usermod -aG _seatd "$kuser" || warn "could not add $kuser to _seatd"
   elif getent group seatd >/dev/null 2>&1; then
     usermod -aG seatd "$kuser" || warn "could not add $kuser to seatd"
-  else
-    warn "seatd group not found (seatd install may have failed); kiosk may not get a DRM session"
   fi
+  for g in video render input; do
+    getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" "$kuser" 2>/dev/null
+  done
   systemctl enable --now seatd 2>/dev/null || warn "seatd enable/start failed"
 
   mkdir -p /etc/glancecam

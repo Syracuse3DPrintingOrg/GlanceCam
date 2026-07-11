@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "GlanceCam",
+  "project_id": "74088972-2e66-4712-8c86-ae7cb42f51cd"
+}

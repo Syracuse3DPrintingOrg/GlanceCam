@@ -1,38 +1,50 @@
-/* Minimal dark grid styling for milestone 1. The UI agent will restyle. */
+/* GlanceCam UI. Aesthetic: a quiet appliance. Pure black grid, no chrome,
+   nothing animates except the stream content. Transitions stay under 150ms. */
+
+:root {
+  --gc-gap: 2px;
+  --gc-accent: #7fd1ff;
+}
+
 html, body {
   height: 100%;
   margin: 0;
-  background: #0b0b0d;
+  background: #000;
 }
 
 .gc-body {
   min-height: 100%;
+  overflow: hidden;
 }
 
-/* The grid fills the viewport and lays tiles out in a uniform grid. grid.js
-   sets --gc-cols based on the camera count; this keeps tiles square-ish. */
+/* ---- The grid -------------------------------------------------------- */
+
+/* Edge to edge. grid.js sets --gc-cols and --gc-rows from the layout math so
+   tiles are the largest size that fits every visible camera. */
 .gc-grid {
   display: grid;
-  grid-template-columns: repeat(var(--gc-cols, 2), 1fr);
-  gap: 4px;
-  padding: 4px;
+  grid-template-columns: repeat(var(--gc-cols, 1), 1fr);
+  grid-template-rows: repeat(var(--gc-rows, 1), 1fr);
+  gap: var(--gc-gap);
   width: 100vw;
   height: 100vh;
   box-sizing: border-box;
+  background: #000;
 }
 
 .gc-tile {
   position: relative;
   background: #000;
   overflow: hidden;
-  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  min-width: 0;
   min-height: 0;
 }
 
+/* Video and snapshot fill the tile with black letterbox, never cropped. */
 .gc-tile video-stream,
 .gc-tile video,
 .gc-tile img {
@@ -40,6 +52,18 @@ html, body {
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+/* The vendored element paints its own controls and a status overlay; the
+   appliance shows neither. Clicks fall through to the tile handler. */
+.gc-tile video-stream {
+  pointer-events: none;
+}
+.gc-tile video-stream .info {
+  display: none !important;
+}
+.gc-tile video::-webkit-media-controls {
+  display: none !important;
 }
 
 .gc-tile-label {
@@ -52,48 +76,165 @@ html, body {
   background: rgba(0, 0, 0, 0.55);
   border-radius: 3px;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
-/* A single tile expanded to fill the whole grid area. */
+/* Name shows on hover on a desktop; the kiosk keeps it hidden. */
+.gc-tile:hover .gc-tile-label {
+  opacity: 1;
+}
+.gc-body.kiosk .gc-tile-label {
+  opacity: 0 !important;
+}
+
+/* Paused tiles: a still with a small "tap for live" badge. */
+.gc-tile.paused .gc-tile-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 1px 8px;
+  font: 11px/1.4 system-ui, sans-serif;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.gc-tile.offline .gc-tile-badge {
+  color: rgba(255, 160, 160, 0.9);
+}
+
+/* A single tile expanded to fill the viewport. */
 .gc-tile.fullscreen {
   position: fixed;
   inset: 0;
   z-index: 50;
-  border-radius: 0;
 }
 
 .gc-empty {
   grid-column: 1 / -1;
+  grid-row: 1 / -1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: #ccc;
+  gap: 14px;
+  color: #cfcfcf;
   font: 16px/1.5 system-ui, sans-serif;
 }
 
+/* ---- Gear and banners ------------------------------------------------ */
+
 .gc-gear {
   position: fixed;
-  top: 10px;
   right: 12px;
+  bottom: 12px;
   z-index: 60;
-  font-size: 22px;
-  color: rgba(255, 255, 255, 0.55);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
   text-decoration: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  opacity: 0.18;
+  transition: opacity 0.12s ease;
 }
-
-.gc-body:hover .gc-gear {
-  opacity: 1;
+.gc-gear:hover,
+.gc-gear:focus {
+  opacity: 0.85;
+  color: #fff;
 }
-
-/* Kiosk mode hides the gear and the cursor entirely. */
 .gc-body.kiosk .gc-gear {
   display: none;
 }
 
-.gc-body.kiosk {
-  cursor: none;
+.gc-banner {
+  position: fixed;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  z-index: 70;
+  max-width: 92vw;
+  padding: 6px 14px;
+  font: 13px/1.4 system-ui, sans-serif;
+  color: #ffd9d9;
+  background: rgba(60, 12, 12, 0.92);
+  border: 1px solid rgba(255, 120, 120, 0.35);
+  border-radius: 6px;
+  text-decoration: none;
+}
+.gc-banner:hover { color: #fff; }
+.gc-body.kiosk .gc-banner { display: none; }
+
+/* A brief status toast, bottom-center, auto-fades. */
+.gc-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%) translateY(8px);
+  z-index: 80;
+  padding: 7px 16px;
+  font: 13px/1.4 system-ui, sans-serif;
+  color: #fff;
+  background: rgba(20, 20, 22, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.gc-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Kiosk hides the pointer only after an idle interval (set by kiosk.js). */
+.gc-body.cursor-hidden,
+.gc-body.cursor-hidden * {
+  cursor: none !important;
+}
+
+/* ---- Settings and login (Bootstrap-dark, kept calm) ------------------ */
+
+.gc-page {
+  overflow: auto;
+}
+.gc-page.gc-body {
+  overflow: auto;
+}
+
+.gc-cam-row {
+  gap: 10px;
+}
+.gc-cam-handle {
+  cursor: grab;
+  color: rgba(255, 255, 255, 0.4);
+  user-select: none;
+  font-size: 18px;
+  line-height: 1;
+}
+.gc-cam-row.dragging {
+  opacity: 0.5;
+}
+.gc-badge-dot {
+  font-size: 0.72rem;
+}
+.gc-proposal img {
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+}
+.gc-scan-bar {
+  height: 6px;
+}
+.gc-inline-edit {
+  background: rgba(255, 255, 255, 0.03);
 }

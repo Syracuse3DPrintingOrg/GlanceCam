@@ -1,0 +1,1 @@
+{"id":"int-7e4da072","kind":"field_change","created_at":"2026-07-11T21:22:03.421352691Z","actor":"BillNyeDegrasseTyson","issue_id":"GlanceCam-9ws","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Core skeleton built, 58 tests green, committed and pushed as e98cf7a"}}

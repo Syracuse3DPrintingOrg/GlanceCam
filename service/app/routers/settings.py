@@ -35,12 +35,12 @@ _USER_SETTABLE = {
 async def settings_page(request: Request):
     ctx = base_context(request)
     ctx["settings"] = settings
-    return templates.TemplateResponse("settings.html", ctx)
+    return templates.TemplateResponse(request, "settings.html", ctx)
 
 
 @router.get("/login")
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", base_context(request))
+    return templates.TemplateResponse(request, "login.html", base_context(request))
 
 
 @router.post("/api/settings")
@@ -59,6 +59,9 @@ async def save_settings(request: Request):
     # it": clearing is a distinct explicit action, not an accidental blank save.
     if "settings_password" in data and data["settings_password"] == "":
         data.pop("settings_password")
+    # Clearing the password is that explicit action: the payload must say so.
+    if str(payload.get("settings_password_clear", "")).lower() in ("1", "true", "on", "yes"):
+        data["settings_password"] = ""
     # Coerce the checkbox/number fields that arrive as strings from a plain form.
     for bool_key in ("fullscreen_uses_main", "is_pi"):
         if bool_key in data:

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ app_name }}{% endblock %}
 {% block body %}
+{# Server-rendered tiles are the no-JS fallback and the empty state. grid.js
+   rebuilds the grid from /api/cameras so it has each stream's aspect ratio,
+   the live-tile budget, and paused snapshots. #}
 <div id="gc-grid" class="gc-grid" data-camera-count="{{ cameras|length }}">
   {% for cam in cameras %}
-  <div class="gc-tile" data-camera-id="{{ cam.id }}"
-       data-name="{{ cam.name }}"
-       data-has-sub="{{ 'true' if cam.sub_url else 'false' }}"
-       data-fullscreen-main="{{ 'true' if cam.fullscreen_uses_main else 'false' }}">
+  <div class="gc-tile" data-camera-id="{{ cam.id }}" data-name="{{ cam.name }}">
     <div class="gc-tile-label">{{ cam.name }}</div>
   </div>
   {% else %}
@@ -21,9 +21,11 @@
 <a class="gc-gear" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
 {% endif %}
 
+<div id="gc-toast" class="gc-toast" role="status" aria-live="polite"></div>
+
 <script type="module" src="/static/js/vendor/video-stream.js"></script>
 {% endblock %}
 {% block scripts %}
-<script type="module" src="/static/js/grid.js"></script>
 <script src="/static/js/kiosk.js"></script>
+<script type="module" src="/static/js/grid.js"></script>
 {% endblock %}

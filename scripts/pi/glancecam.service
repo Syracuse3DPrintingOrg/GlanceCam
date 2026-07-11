@@ -1,0 +1,24 @@
+[Unit]
+Description=GlanceCam camera viewer
+After=network-online.target glancecam-go2rtc.service
+Wants=network-online.target
+Requires=glancecam-go2rtc.service
+
+[Service]
+Type=simple
+User=glancecam
+WorkingDirectory=/opt/glancecam/app/service
+Environment=GLANCECAM_DATA_DIR=/opt/glancecam/data
+Environment=GLANCECAM_GO2RTC_URL=http://127.0.0.1:1984
+# Port 9292 matches the published Docker image, so bookmarks and README
+# instructions hold regardless of which install mode is running.
+# --no-proxy-headers: nothing in front of this process rewrites the client
+# address, so uvicorn should never trust a spoofable X-Forwarded-For.
+ExecStart=/opt/glancecam/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 9292 --no-proxy-headers
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

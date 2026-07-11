@@ -30,7 +30,7 @@ _NO_CACHE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 def _render_grid(request: Request):
     ctx = base_context(request)
     ctx["cameras"] = [store.public_view(c) for c in store.list_cameras()]
-    return templates.TemplateResponse("index.html", ctx)
+    return templates.TemplateResponse(request, "index.html", ctx)
 
 
 @router.get("/")

@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # env-only path so the settings page can toggle it.
     is_pi: bool = False
 
+    # Home Assistant connection for camera discovery. The token is a long-lived
+    # access token; it is a secret (stored server-side, never returned in an API
+    # response) but it is NOT hashed, since the app must replay it as a bearer
+    # header to fetch HA camera feeds.
+    ha_base_url: str = ""
+    ha_token: str = ""
+
     # Signs the session cookie. Auto-generated and persisted on first run.
     secret_key: str = ""
 
@@ -187,6 +194,8 @@ _SAVEABLE = [
     "snapshot_refresh_seconds",
     "kiosk_rotation",
     "is_pi",
+    "ha_base_url",
+    "ha_token",
     "secret_key",
 ]
 

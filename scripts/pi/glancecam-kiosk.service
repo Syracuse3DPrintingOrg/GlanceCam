@@ -1,0 +1,46 @@
+[Unit]
+Description=GlanceCam Chromium kiosk
+After=glancecam.service systemd-user-sessions.service getty@tty1.service network-online.target seatd.service
+Wants=network-online.target seatd.service
+Conflicts=getty@tty1.service
+# The kiosk is the only thing on the display: never give up on it. An early
+# crash (DRM not ready, seatd racing up) would otherwise leave the screen
+# stuck on the boot console until someone starts the unit by hand.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+TimeoutStartSec=120
+User=__KIOSK_USER__
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_RUNTIME_DIR=/run/user/__KIOSK_UID__
+Environment=LIBSEAT_BACKEND=seatd
+# Wait (bounded, best-effort) for the app to answer before launching the
+# browser: Chromium renders a connection-refused page and never retries.
+# Always exits 0 so a missing curl or an app that stays down never blocks
+# the kiosk from starting once it does come up.
+ExecStartPre=-/bin/sh -c 'command -v curl >/dev/null 2>&1 || exit 0; for i in $(seq 1 60); do curl -sf -o /dev/null --max-time 2 http://localhost:9292/health && exit 0; sleep 2; done; exit 0'
+# --default-background-color: Chromium paints white while a page loads;
+# match the app's dark background so navigation doesn't flash.
+ExecStart=__CAGE_BIN__ -- __CHROMIUM_BIN__ --kiosk --noerrdialogs \
+  --disable-infobars --no-first-run --ozone-platform=wayland \
+  --touch-events=enabled --use-gl=angle --use-angle=gles-egl \
+  --default-background-color=212529 \
+  --disable-restore-session-state __KIOSK_URL__
+# Applies the saved rotation once cage is up (cage ignores
+# WLR_OUTPUT_TRANSFORM; the helper drives wlr-randr and retries while the
+# output comes up). Best-effort: a missing helper never blocks the kiosk.
+ExecStartPost=-/opt/glancecam/bin/apply-rotation
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

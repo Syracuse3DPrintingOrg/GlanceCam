@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ..config import APP_VERSION, settings
 from ..services import cameras as camera_store
@@ -26,14 +26,26 @@ async def system_info() -> dict:
 
 
 @router.get("/budget")
-async def system_budget(cores: Optional[int] = None,
+async def system_budget(request: Request,
+                        cores: Optional[int] = None,
                         width: Optional[int] = None,
-                        height: Optional[int] = None) -> dict:
+                        height: Optional[int] = None,
+                        surface: Optional[str] = None) -> dict:
     """The live-tile budget for the calling surface.
 
     A remote browser passes its ``navigator.hardwareConcurrency`` and viewport
     as query hints; the kiosk (loopback) can omit them and the host hardware is
-    used. The real math is owned by the resources agent.
+    used. A loopback caller with no explicit ``surface`` on a Pi defaults to
+    the kiosk surface (no client hint), even if it happens to pass cores.
     """
-    client_hint = {"cores": cores, "width": width, "height": height}
-    return resources.budget(client_hint=client_hint)
+    client_hint: Optional[dict] = None
+    if cores is not None:
+        client_hint = {"cores": cores, "width": width, "height": height}
+
+    client_host = request.client.host if request.client else None
+    is_loopback = client_host in ("127.0.0.1", "::1", "localhost")
+    if surface is None and is_loopback and settings.is_pi_effective():
+        client_hint = None
+
+    cameras = [camera_store.public_view(c) for c in camera_store.list_cameras()]
+    return resources.budget(cameras, client_hint=client_hint)

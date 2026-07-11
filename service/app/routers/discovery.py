@@ -18,6 +18,7 @@ password (to probe a device the user chose) and never returns one.
 from __future__ import annotations
 
 import anyio
+import asyncio
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
@@ -301,15 +302,35 @@ async def _probe_rtsp_url(url: str, username: str, password: str,
         async with httpx.AsyncClient(timeout=timeout) as client:
             await client.put(f"{go2rtc._base()}/api/streams",
                              params={"name": test_name, "src": src})
-            # Force the producer to connect (see _preview_rtsp): without a
-            # consumer go2rtc never dials the camera and the probe sees an
-            # empty stream, so every candidate would look dead.
+            # go2rtc dials the camera only while a consumer is attached, and
+            # drops the connection the moment the consumer goes away. So keep a
+            # frame request in flight as that consumer and poll the probe
+            # UNDER it: the codec shows up right after the RTSP handshake,
+            # long before a JPEG (which for H265 also needs ffmpeg) exists.
+            async def _consume():
+                try:
+                    await client.get(f"{go2rtc._base()}/api/frame.jpeg",
+                                     params={"src": test_name})
+                except (httpx.HTTPError, OSError):
+                    pass
+            consumer = asyncio.create_task(_consume())
+            deadline = asyncio.get_event_loop().time() + timeout
+            while True:
+                await asyncio.sleep(0.4)
+                result = await go2rtc.probe(test_name)
+                if result and (result.get("resolution") or result.get("codec")):
+                    break
+                if consumer.done():
+                    # The camera answered (or refused) already; one last look.
+                    result = await go2rtc.probe(test_name)
+                    break
+                if asyncio.get_event_loop().time() >= deadline:
+                    break
+            consumer.cancel()
             try:
-                await client.get(f"{go2rtc._base()}/api/frame.jpeg",
-                                 params={"src": test_name})
-            except (httpx.HTTPError, OSError):
+                await consumer
+            except (asyncio.CancelledError, httpx.HTTPError, OSError):
                 pass
-            result = await go2rtc.probe(test_name)
     except (httpx.HTTPError, OSError):
         result = None
     finally:

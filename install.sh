@@ -409,6 +409,46 @@ install_core_units() {
 # needs a real seat to get DRM/VT access when run as a non-logind service
 # user, which is what seatd provides; it is installed and the kiosk user is
 # added to its group below.
+# A fully transparent XCursor theme, written byte for byte (xcursorgen is not
+# always installable). "Xcur" magic, one TOC entry, one 1x1 image whose only
+# pixel is ARGB 0x00000000. Cage has no hide-cursor flag and CSS cursor:none
+# cannot hide the compositor's own seat cursor, so the theme is the reliable
+# way to blank it on a touch appliance. Echoes the theme name on success.
+_install_blank_cursor_theme() {
+  local theme="glancecam-hidden"
+  local cdir="/usr/share/icons/$theme/cursors"
+  mkdir -p "$cdir" || return 1
+  if ! printf '\130\143\165\162\020\000\000\000\000\000\001\000\001\000\000\000\002\000\375\377\001\000\000\000\034\000\000\000\044\000\000\000\002\000\375\377\001\000\000\000\001\000\000\000\001\000\000\000\001\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000' > "$cdir/left_ptr"; then
+    return 1
+  fi
+  local name
+  for name in default left_ptr_watch watch text xterm hand1 hand2 pointer \
+              top_left_arrow arrow crosshair fleur grabbing; do
+    ln -sf left_ptr "$cdir/$name" 2>/dev/null || true
+  done
+  cat > "/usr/share/icons/$theme/index.theme" <<'THEME'
+[Icon Theme]
+Name=GlanceCam Hidden Cursor
+Comment=Fully transparent cursor for the touch kiosk
+THEME
+  echo "$theme"
+}
+
+# The vc4 HDMI CEC input devices advertise relative axes, which hands the
+# Wayland seat a pointer capability and makes cage draw a cursor on a device
+# with no mouse at all. The kiosk never uses CEC input; ignore those devices.
+_install_cec_pointer_ignore_rule() {
+  local rules="/etc/udev/rules.d/71-glancecam-cec-pointer.rules"
+  [ -f "$rules" ] && return 0
+  cat > "$rules" <<'RULES'
+# GlanceCam kiosk: vc4 HDMI CEC input devices expose relative axes, which
+# grows the Wayland seat a pointer and draws a cursor with no mouse attached.
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="vc4-hdmi*", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+RULES
+  udevadm control --reload-rules 2>/dev/null || true
+  udevadm trigger --subsystem-match=input 2>/dev/null || true
+}
+
 install_kiosk() {
   say "Installing the Chromium kiosk (cage + chromium)"
   apt-get install -y --no-install-recommends cage seatd wlr-randr || warn "kiosk package install had failures"
@@ -464,6 +504,20 @@ install_kiosk() {
     -e "s#__CAGE_BIN__#$cage_bin#g" \
     -e "s#__CHROMIUM_BIN__#$chromium_bin#g" \
     "$REPO_DIR/scripts/pi/glancecam-kiosk.service" > /etc/systemd/system/glancecam-kiosk.service
+
+  # Hide the pointer on the appliance screen (GLANCECAM_HIDE_CURSOR=false to
+  # keep it, e.g. when a mouse is attached).
+  if [ "${GLANCECAM_HIDE_CURSOR:-true}" != "false" ]; then
+    local cursor_theme
+    cursor_theme="$(_install_blank_cursor_theme || true)"
+    if [ -n "$cursor_theme" ]; then
+      sed -i "/^Environment=LIBSEAT_BACKEND=seatd/a Environment=XCURSOR_PATH=/usr/share/icons\nEnvironment=XCURSOR_THEME=$cursor_theme\nEnvironment=XCURSOR_SIZE=24" \
+        /etc/systemd/system/glancecam-kiosk.service
+    else
+      warn "could not install the transparent cursor theme; the cursor stays visible"
+    fi
+    _install_cec_pointer_ignore_rule
+  fi
 
   systemctl daemon-reload
   systemctl enable glancecam-kiosk.service || warn "kiosk enable failed"

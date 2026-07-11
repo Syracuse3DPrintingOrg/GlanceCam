@@ -150,7 +150,13 @@ function enterFullscreen(entry, entries) {
     }
   }
   entry.el.classList.add('fullscreen');
-  if (wantsMain(entry.cam)) {
+  if (wantsMain(entry.cam) && entry.cam.sub_url) {
+    // Keep the sub stream on screen and warm the main stream behind it: the
+    // camera is only dialed now and the picture cannot start before its next
+    // keyframe, so a visible swap beats a black "loading" screen. If the main
+    // stream never renders (unsupported codec, offline), the sub simply stays.
+    startMainUpgrade(entry);
+  } else if (wantsMain(entry.cam)) {
     detachStream(entry);
     entry.streamEl = makeStreamEl(mainStreamName(entry.cam));
     entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
@@ -162,15 +168,50 @@ function enterFullscreen(entry, entries) {
   }
 }
 
+function startMainUpgrade(entry) {
+  cancelMainUpgrade(entry);
+  const mainEl = makeStreamEl(mainStreamName(entry.cam));
+  mainEl.classList.add('gc-main-upgrade');
+  entry._mainEl = mainEl;
+  entry.el.insertBefore(mainEl, entry.el.firstChild);
+  const onPlaying = (ev) => {
+    if (!ev.target || ev.target.tagName !== 'VIDEO') return;
+    // The main stream is rendering: it becomes the tile's stream.
+    mainEl.classList.remove('gc-main-upgrade');
+    mainEl.removeEventListener('playing', onPlaying, true);
+    clearTimeout(entry._mainTimer);
+    entry._mainTimer = null;
+    if (entry._mainEl === mainEl) {
+      detachStream(entry);
+      entry.streamEl = mainEl;
+      entry._mainEl = null;
+    }
+  };
+  mainEl.addEventListener('playing', onPlaying, true);
+  // Give up quietly if the main stream cannot start (H265 in a browser that
+  // cannot decode it, camera offline): the sub stream stays on screen.
+  entry._mainTimer = setTimeout(() => cancelMainUpgrade(entry), 15000);
+}
+
+function cancelMainUpgrade(entry) {
+  if (entry._mainTimer) { clearTimeout(entry._mainTimer); entry._mainTimer = null; }
+  if (entry._mainEl) { entry._mainEl.remove(); entry._mainEl = null; }
+}
+
 function exitFullscreen(entries) {
   const entry = fullscreenEntry;
   fullscreenEntry = null;
   if (!entry) return;
   entry.el.classList.remove('fullscreen');
+  cancelMainUpgrade(entry);
   if (wantsMain(entry.cam)) {
-    detachStream(entry);
-    entry.streamEl = makeStreamEl(gridStreamName(entry.cam));
-    entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
+    // Back on the grid the light sub stream is enough; drop the main decode.
+    const gridName = gridStreamName(entry.cam);
+    if (!entry.streamEl || entry.streamEl.src.indexOf(`src=${encodeURIComponent(gridName)}`) === -1) {
+      detachStream(entry);
+      entry.streamEl = makeStreamEl(gridName);
+      entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
+    }
   }
   for (const other of entries) {
     if (other._suspended) {

@@ -59,6 +59,14 @@ html, body {
 .gc-tile video-stream {
   pointer-events: none;
 }
+
+/* A main stream warming up invisibly behind the sub during fullscreen; it is
+   revealed (class removed) only once it is actually rendering frames. */
+.gc-tile .gc-main-upgrade {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+}
 .gc-tile video-stream .info {
   display: none !important;
 }

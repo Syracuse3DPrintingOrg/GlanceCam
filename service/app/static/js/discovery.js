@@ -1,7 +1,10 @@
 // Camera discovery: scan the LAN, ONVIF, Reolink, and Home Assistant. Every
-// path returns proposed cameras that add with one tap. The discovery service
-// is built by another agent; if an endpoint is missing this degrades to a
-// short "not available yet" note rather than an error.
+// path returns proposed cameras that add with one tap. If an endpoint is
+// missing this degrades to a short "not available yet" note rather than an
+// error. Wrapped in an IIFE: this loads alongside settings.js in the same
+// global scope, and shared top-level names would stop the whole script.
+(() => {
+'use strict';
 
 const statusEl = document.getElementById('gc-disc-status');
 const resultsEl = document.getElementById('gc-disc-results');
@@ -133,7 +136,10 @@ async function pollScan(jobId) {
   const r = await fetch(`/api/discovery/scan/${encodeURIComponent(jobId)}`);
   if (!r.ok) { notAvailable(r.status); return; }
   const data = await r.json();
-  const pct = Number.isFinite(data.progress) ? data.progress : null;
+  let pct = Number.isFinite(data.progress) ? data.progress : null;
+  if (pct == null && data.progress && data.progress.total > 0) {
+    pct = (100 * data.progress.done) / data.progress.total;
+  }
   showProgress(pct == null ? 5 : pct);
   const status = (data.status || '').toLowerCase();
   if (['done', 'complete', 'completed', 'finished', 'error'].includes(status)) {
@@ -218,3 +224,5 @@ if (haForm) {
     renderProposals(proposalsOf(data), {});
   });
 }
+
+})();

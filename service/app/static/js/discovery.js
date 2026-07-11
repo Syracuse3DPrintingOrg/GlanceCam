@@ -57,6 +57,8 @@ function proposalsOf(data) {
   if (data && Array.isArray(data.results)) return data.results;
   if (data && Array.isArray(data.proposals)) return data.proposals;
   if (data && Array.isArray(data.cameras)) return data.cameras;
+  // A finished scan job nests its findings: {results: {cameras: [...]}}.
+  if (data && data.results && typeof data.results === 'object') return proposalsOf(data.results);
   return [];
 }
 

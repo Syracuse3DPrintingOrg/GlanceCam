@@ -60,12 +60,19 @@ html, body {
   pointer-events: none;
 }
 
-/* A main stream warming up invisibly behind the sub during fullscreen; it is
-   revealed (class removed) only once it is actually rendering frames. */
+/* A main stream warming up invisibly behind the sub during fullscreen; once
+   it is actually rendering frames it is revealed on top (gc-main-active)
+   while the sub keeps playing underneath for an instant exit. */
 .gc-tile .gc-main-upgrade {
   position: absolute;
   inset: 0;
   visibility: hidden;
+}
+.gc-tile .gc-main-active {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: #000;
 }
 .gc-tile video-stream .info {
   display: none !important;

@@ -142,13 +142,11 @@ function wantsMain(cam) {
 function enterFullscreen(entry, entries) {
   fullscreenEntry = entry;
   entry.lastInteract = Date.now();
-  // Free decode budget: suspend every other live tile's stream.
-  for (const other of entries) {
-    if (other !== entry && other.mode === 'live' && other.streamEl) {
-      other._suspended = true;
-      detachStream(other);
-    }
-  }
+  // Other live tiles keep their sub streams: tearing them down made the whole
+  // grid go dark on exit while every stream re-dialed and waited for a
+  // keyframe. Subs are cheap (the budget already limits how many exist) and
+  // an instant return to the grid matters more than idle decode behind the
+  // fullscreen tile.
   entry.el.classList.add('fullscreen');
   if (wantsMain(entry.cam) && entry.cam.sub_url) {
     // Keep the sub stream on screen and warm the main stream behind it: the
@@ -176,16 +174,14 @@ function startMainUpgrade(entry) {
   entry.el.insertBefore(mainEl, entry.el.firstChild);
   const onPlaying = (ev) => {
     if (!ev.target || ev.target.tagName !== 'VIDEO') return;
-    // The main stream is rendering: it becomes the tile's stream.
+    // The main stream is rendering: reveal it ON TOP of the sub. The sub
+    // keeps playing underneath so leaving fullscreen is instant instead of
+    // re-dialing the camera and waiting out another keyframe interval.
     mainEl.classList.remove('gc-main-upgrade');
+    mainEl.classList.add('gc-main-active');
     mainEl.removeEventListener('playing', onPlaying, true);
     clearTimeout(entry._mainTimer);
     entry._mainTimer = null;
-    if (entry._mainEl === mainEl) {
-      detachStream(entry);
-      entry.streamEl = mainEl;
-      entry._mainEl = null;
-    }
   };
   mainEl.addEventListener('playing', onPlaying, true);
   // Give up quietly if the main stream cannot start (H265 in a browser that
@@ -203,21 +199,14 @@ function exitFullscreen(entries) {
   fullscreenEntry = null;
   if (!entry) return;
   entry.el.classList.remove('fullscreen');
+  // Drop the main overlay; the sub stream underneath never stopped playing,
+  // so the grid is showing video again immediately. Cameras without a sub
+  // swapped their only element to main and swap back here.
   cancelMainUpgrade(entry);
-  if (wantsMain(entry.cam)) {
-    // Back on the grid the light sub stream is enough; drop the main decode.
-    const gridName = gridStreamName(entry.cam);
-    if (!entry.streamEl || entry.streamEl.src.indexOf(`src=${encodeURIComponent(gridName)}`) === -1) {
-      detachStream(entry);
-      entry.streamEl = makeStreamEl(gridName);
-      entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
-    }
-  }
-  for (const other of entries) {
-    if (other._suspended) {
-      other._suspended = false;
-      goLive(other);
-    }
+  if (wantsMain(entry.cam) && !entry.cam.sub_url) {
+    detachStream(entry);
+    entry.streamEl = makeStreamEl(gridStreamName(entry.cam));
+    entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
   }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }

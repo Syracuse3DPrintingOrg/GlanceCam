@@ -21,6 +21,94 @@ function formData(form) {
   return out;
 }
 
+// ---- Saved credentials -----------------------------------------------------
+
+// One cache shared by the saved-credentials card and every picker on the page
+// (the add form, the discovery credentials, and each camera edit form).
+let credsCache = [];
+
+function credOptionsHtml(selectedId) {
+  return credsCache.map((c) => {
+    const label = c.username ? `${c.name} (${c.username})` : c.name;
+    return `<option value="${escapeAttr(c.id)}" ${c.id === selectedId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+// Refill every saved-credential <select>, keeping its first ("enter manually")
+// option and current choice, then sync its manual username/password fields.
+function populateCredPickers() {
+  document.querySelectorAll('select.gc-cred-picker').forEach((sel) => {
+    const keep = sel.value;
+    const first = sel.querySelector('option');
+    sel.innerHTML = (first ? first.outerHTML : '') + credOptionsHtml(keep);
+    if (![...sel.options].some((o) => o.value === keep)) sel.value = '';
+    applyCredPicker(sel);
+  });
+}
+
+// A chosen saved set disables the manual username/password in the same scope, so
+// it is clear which login will be used and the two cannot fight.
+function applyCredPicker(sel) {
+  const scope = sel.closest('[data-cred-scope]');
+  if (!scope) return;
+  const chosen = !!sel.value;
+  ['.gc-cred-user', '.gc-cred-pass'].forEach((q) => {
+    const el = scope.querySelector(q);
+    if (!el) return;
+    el.disabled = chosen;
+    if (chosen) el.value = '';
+  });
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.matches && e.target.matches('select.gc-cred-picker')) {
+    applyCredPicker(e.target);
+  }
+});
+
+async function loadCredentials() {
+  const { ok, data } = await api('GET', '/api/credentials');
+  credsCache = ok && Array.isArray(data) ? data : [];
+  renderCredList();
+  populateCredPickers();
+  document.dispatchEvent(new CustomEvent('gc-creds-changed'));
+}
+
+function renderCredList() {
+  const list = document.getElementById('gc-cred-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!credsCache.length) {
+    list.innerHTML = '<li class="list-group-item text-secondary">No saved logins yet.</li>';
+    return;
+  }
+  for (const c of credsCache) {
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex align-items-center';
+    const who = c.username ? ` <span class="text-secondary small">${escapeHtml(c.username)}</span>` : '';
+    li.innerHTML = `<span class="flex-grow-1"><strong>${escapeHtml(c.name)}</strong>${who}</span>`;
+    const del = btn('Remove', 'btn-outline-danger');
+    del.addEventListener('click', async () => {
+      if (!confirm(`Remove saved login "${c.name}"?`)) return;
+      await api('DELETE', `/api/credentials/${c.id}`);
+      loadCredentials();
+    });
+    li.append(del);
+    list.append(li);
+  }
+}
+
+const credForm = document.getElementById('gc-cred-form');
+if (credForm) {
+  credForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = document.getElementById('gc-cred-note');
+    const { ok, data } = await api('POST', '/api/credentials', formData(credForm));
+    if (note) note.textContent = ok ? 'Saved' : ((data && data.detail) || 'Could not save');
+    if (ok) { credForm.reset(); loadCredentials(); }
+  });
+}
+
 // ---- Camera list -----------------------------------------------------------
 
 function badges(cam) {
@@ -49,6 +137,8 @@ async function loadCameras() {
   cameraCache
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .forEach((cam) => list.append(cameraRow(cam)));
+  // The edit forms carry saved-credential pickers; fill any just rendered.
+  populateCredPickers();
 }
 
 function cameraRow(cam) {
@@ -86,6 +176,7 @@ function cameraRow(cam) {
 function editForm(cam, li) {
   const wrap = document.createElement('div');
   wrap.className = 'gc-inline-edit border rounded p-3 mt-2';
+  wrap.setAttribute('data-cred-scope', '');
   const fsMain = cam.fullscreen_uses_main === true ? 'on'
     : cam.fullscreen_uses_main === false ? 'off' : 'default';
   wrap.innerHTML = `
@@ -97,11 +188,15 @@ function editForm(cam, li) {
       <input class="form-control form-control-sm" name="sub_url" value="${escapeAttr(cam.sub_url || '')}"></div>
     <div class="mb-2"><label class="form-label small">Snapshot</label>
       <input class="form-control form-control-sm" name="snapshot_url" value="${escapeAttr(cam.snapshot_url || '')}"></div>
+    <div class="mb-2"><label class="form-label small">Saved credentials</label>
+      <select class="form-select form-select-sm gc-cred-picker" name="credential_id">
+        <option value="">Enter a login below</option>
+      </select></div>
     <div class="row g-2 mb-2">
       <div class="col"><label class="form-label small">Username</label>
-        <input class="form-control form-control-sm" name="username" value="${escapeAttr(cam.username || '')}" autocomplete="off"></div>
+        <input class="form-control form-control-sm gc-cred-user" name="username" value="${escapeAttr(cam.username || '')}" autocomplete="off"></div>
       <div class="col"><label class="form-label small">Password</label>
-        <input class="form-control form-control-sm" type="password" name="password"
+        <input class="form-control form-control-sm gc-cred-pass" type="password" name="password"
                placeholder="${cam.password === '__set__' ? 'Leave blank to keep' : ''}" autocomplete="new-password"></div>
     </div>
     <div class="row g-2 mb-2 align-items-end">
@@ -269,4 +364,5 @@ window.gcEscapeHtml = escapeHtml;
 window.gcApi = api;
 
 loadCameras();
+loadCredentials();
 loadSystem();

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from ..services import cameras as store
+from ..services import credentials
 from ..services import go2rtc
 from ..services import netguard
 
@@ -19,6 +20,24 @@ async def _payload(request: Request) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _apply_credential(data: dict) -> dict:
+    """Fill username/password from a saved set when ``credential_id`` is given.
+
+    A typed username/password already in the payload wins, so a saved set only
+    fills what was left blank. ``credential_id`` is not a camera field, so it is
+    stripped here and never persisted.
+    """
+    cred_id = data.pop("credential_id", None)
+    resolved = credentials.resolve(cred_id or "")
+    if resolved is not None:
+        user, pw = resolved
+        if not data.get("username"):
+            data["username"] = user
+        if not data.get("password"):
+            data["password"] = pw
+    return data
+
+
 @router.get("")
 async def list_all():
     return [store.public_view(c) for c in store.list_cameras()]
@@ -26,7 +45,7 @@ async def list_all():
 
 @router.post("")
 async def create(request: Request):
-    data = await _payload(request)
+    data = _apply_credential(await _payload(request))
     try:
         cam = store.add(data)
     except store.CameraError as exc:
@@ -37,7 +56,7 @@ async def create(request: Request):
 
 @router.patch("/{camera_id}")
 async def edit(camera_id: str, request: Request):
-    data = await _payload(request)
+    data = _apply_credential(await _payload(request))
     try:
         cam = store.update(camera_id, data)
     except store.CameraError as exc:
@@ -73,7 +92,7 @@ async def test(request: Request):
     Adds a temporary go2rtc stream, probes it for a resolution, then removes it.
     Returns ``{ok, resolution?, error?}``.
     """
-    data = await _payload(request)
+    data = _apply_credential(await _payload(request))
     url = (data.get("url") or data.get("main_url") or "").strip()
     if not url:
         return {"ok": False, "error": "Enter a camera address to test."}

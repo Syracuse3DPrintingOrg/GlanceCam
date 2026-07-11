@@ -21,7 +21,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.websockets import WebSocketDisconnect
 
 from .config import APP_VERSION, settings
-from .routers import cameras, discovery, settings as settings_router, system, ui
+from .routers import (cameras, credentials, discovery,
+                      settings as settings_router, system, ui)
 
 _log = logging.getLogger("glancecam.main")
 
@@ -97,6 +98,7 @@ app.include_router(cameras.router)
 app.include_router(settings_router.router)
 app.include_router(system.router)
 app.include_router(discovery.router)
+app.include_router(credentials.router)
 
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 

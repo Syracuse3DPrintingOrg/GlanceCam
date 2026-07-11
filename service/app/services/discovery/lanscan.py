@@ -22,6 +22,8 @@ from typing import Callable, Optional
 
 import httpx
 
+from . import streampaths
+
 # Ports a network camera commonly answers on. 554/8554 are RTSP (not viewable in
 # a browser); the rest are HTTP(S) front-ends that may expose a JPEG snapshot.
 CAMERA_PORTS = (554, 8554, 80, 88, 443, 8000, 8080, 8443, 37777)
@@ -129,22 +131,28 @@ def _probe_http(ip: str, port: int, scheme: str, timeout: float,
 
 
 def _proposal(ip: str, open_ports: list, snapshot_url: str, rtsp: bool,
-              auth: bool, brand: str, resolution: Optional[list]) -> dict:
+              auth: bool, brand: str, resolution: Optional[list],
+              brand_hint: str = "") -> dict:
     """Build a proposed Camera dict from a probe result.
 
     Scanned hosts are proposed as ``manual`` cameras: the scan cannot know the
     RTSP stream path for a generic host, so ``main_url`` is left blank for the
     user (or the ONVIF/Reolink probes) to fill. The brand hint and any caveat go
-    in ``notes``.
+    in ``notes``. When no snapshot path fingerprinted a brand, ``brand_hint`` is
+    a guess from the open-port signature so a Reolink-style device stops showing
+    up as merely "Unknown".
     """
     notes = []
     if brand:
         notes.append(f"Looks like {brand}.")
+    elif brand_hint:
+        notes.append(f"Ports look like {brand_hint.title()}. Use Find stream to "
+                     "confirm.")
     if auth and not snapshot_url:
         notes.append("Needs a login: re-probe with the camera's username and "
                      "password.")
     if rtsp and not snapshot_url:
-        notes.append("Answers RTSP only. Add its RTSP stream address to view it.")
+        notes.append("Answers RTSP. Use Find stream to pick up its address.")
     return {
         "source": "manual",
         "name": f"Camera at {ip}",
@@ -158,6 +166,9 @@ def _proposal(ip: str, open_ports: list, snapshot_url: str, rtsp: bool,
         "ip": ip,
         "ports": open_ports,
         "brand": brand,
+        # A port-signature guess, shown as "Reolink?" when no path confirmed a
+        # brand; kept separate from ``brand`` so a guess never reads as certain.
+        "brand_hint": brand_hint,
         "rtsp": rtsp,
         "auth_required": auth,
     }
@@ -191,7 +202,11 @@ def probe_camera(ip: str, timeout: float = 0.4,
     rtsp = any(p in _RTSP_PORTS for p in open_ports)
     if not (snapshot_url or rtsp or auth):
         return None
-    return _proposal(ip, open_ports, snapshot_url, rtsp, auth, brand, resolution)
+    # A guess from the open-port signature, only when no snapshot path named a
+    # brand, so the UI can show "Reolink?" instead of "Unknown".
+    brand_hint = "" if brand else (streampaths.likely_brand(open_ports) or "")
+    return _proposal(ip, open_ports, snapshot_url, rtsp, auth, brand, resolution,
+                     brand_hint)
 
 
 def probe_with_auth(host: str, username: str = "", password: str = "",

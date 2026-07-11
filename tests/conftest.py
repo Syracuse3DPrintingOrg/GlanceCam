@@ -23,10 +23,13 @@ def data_dir(tmp_path, monkeypatch):
     """
     from app.config import settings
     from app.services import cameras as camera_store
+    from app.services import credentials as cred_store
 
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
-    # The camera store caches a StateFile bound to a data_dir path; clear it so
-    # it rebinds to the tmp dir.
+    # The stores cache a StateFile bound to a data_dir path; clear them so they
+    # rebind to the tmp dir.
     monkeypatch.setattr(camera_store, "_store", None)
     monkeypatch.setattr(camera_store, "_store_path", None)
+    monkeypatch.setattr(cred_store, "_store", None)
+    monkeypatch.setattr(cred_store, "_store_path", None)
     return tmp_path

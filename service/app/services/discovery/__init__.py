@@ -15,10 +15,10 @@ discovery response.
 """
 from __future__ import annotations
 
-from . import homeassistant, jobs, lanscan, onvif, reolink
+from . import homeassistant, jobs, lanscan, onvif, reolink, streampaths
 
 __all__ = ["jobs", "lanscan", "onvif", "reolink", "homeassistant",
-           "PROPOSAL_FIELDS"]
+           "streampaths", "PROPOSAL_FIELDS"]
 
 # The keys a discovery proposal may carry, documented in one place so every
 # probe stays consistent and the UI knows what to expect. Not every probe fills
@@ -39,6 +39,7 @@ PROPOSAL_FIELDS = {
     "ip": "scanned host address",
     "ports": "open camera ports on a scanned host",
     "brand": "brand hint from a matching snapshot path",
+    "brand_hint": "brand guessed from the open-port signature (shown as a guess)",
     "rtsp": "scanned host answers RTSP",
     "auth_required": "scanned host returned 401/403",
     "channel": "reolink source only: 0-based channel index",

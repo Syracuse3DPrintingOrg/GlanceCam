@@ -8,10 +8,12 @@
     <a class="btn btn-outline-secondary btn-sm" href="/">Back to the grid</a>
   </div>
 
-  <div class="row g-4">
-    <!-- Main column: the camera list and everything that finds new cameras. -->
-    <div class="col-12 col-lg-7">
-      <section class="mb-5">
+  <!-- Top row: the camera list on the left, the settings that are read more
+       than changed on the right. Stacks to one column below xl so nothing is
+       cramped on a laptop or a phone. -->
+  <div class="row g-4 g-xl-5">
+    <div class="col-12 col-xl-7">
+      <section class="mb-4">
         <h2 class="h5">Cameras</h2>
         <p class="text-secondary small">Grid tiles play the sub stream when a camera
           has one, so the display stays light. The main stream is used when you tap a
@@ -20,31 +22,37 @@
 
         <details id="gc-add-details">
           <summary class="mb-2">Add a camera by hand</summary>
-          <form id="gc-add-camera" class="border rounded p-3">
-            <div class="mb-2">
+          <form id="gc-add-camera" class="border rounded p-3" data-cred-scope>
+            <div class="mb-3">
               <label class="form-label">Name</label>
               <input class="form-control" name="name" required placeholder="Front Door">
             </div>
-            <div class="mb-2">
+            <div class="mb-3">
               <label class="form-label">Main stream address</label>
               <input class="form-control" name="main_url" placeholder="rtsp://192.168.1.50:554/stream1">
             </div>
-            <div class="mb-2">
+            <div class="mb-3">
               <label class="form-label">Sub stream address (optional)</label>
               <input class="form-control" name="sub_url" placeholder="rtsp://192.168.1.50:554/stream2">
             </div>
-            <div class="mb-2">
+            <div class="mb-3">
               <label class="form-label">Snapshot address (optional)</label>
               <input class="form-control" name="snapshot_url" placeholder="http://192.168.1.50/snap.jpg">
             </div>
-            <div class="row">
-              <div class="col mb-2">
+            <div class="mb-3">
+              <label class="form-label">Saved credentials (optional)</label>
+              <select class="form-select gc-cred-picker" name="credential_id">
+                <option value="">Enter a login below</option>
+              </select>
+            </div>
+            <div class="row g-3">
+              <div class="col-12 col-sm mb-2">
                 <label class="form-label">Username (optional)</label>
-                <input class="form-control" name="username" autocomplete="off">
+                <input class="form-control gc-cred-user" name="username" autocomplete="off">
               </div>
-              <div class="col mb-2">
+              <div class="col-12 col-sm mb-2">
                 <label class="form-label">Password (optional)</label>
-                <input class="form-control" type="password" name="password" autocomplete="new-password">
+                <input class="form-control gc-cred-pass" type="password" name="password" autocomplete="new-password">
               </div>
             </div>
             <button class="btn btn-primary" type="submit">Add camera</button>
@@ -53,50 +61,158 @@
           </form>
         </details>
       </section>
+    </div>
 
-      <section class="mb-5">
+    <div class="col-12 col-xl-5">
+      <section class="mb-4">
+        <h2 class="h5">Display</h2>
+        <form id="gc-display-form" class="border rounded p-3">
+          <div class="mb-3">
+            <label class="form-label">Theme</label>
+            <select class="form-select" name="theme">
+              <option value="dark" {% if settings.theme == 'dark' %}selected{% endif %}>Dark</option>
+              <option value="light" {% if settings.theme == 'light' %}selected{% endif %}>Light</option>
+            </select>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="fullscreen_uses_main"
+                   id="fsmain" {% if settings.fullscreen_uses_main %}checked{% endif %}>
+            <label class="form-check-label" for="fsmain">Use the main stream when a tile is full screen</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Snapshot refresh (seconds)</label>
+            <input class="form-control" type="number" name="snapshot_refresh_seconds"
+                   min="2" value="{{ settings.snapshot_refresh_seconds }}">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Kiosk display rotation</label>
+            <select class="form-select" name="kiosk_rotation">
+              {% for deg in [0, 90, 180, 270] %}
+              <option value="{{ deg }}" {% if settings.kiosk_rotation == deg %}selected{% endif %}>{{ deg }} degrees</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-primary" type="submit">Save display settings</button>
+        </form>
+      </section>
+
+      <section class="mb-4">
+        <h2 class="h5">Access</h2>
+        <p class="text-secondary small">Set a password to lock this settings page
+          and the camera list. The live grid stays open, and the device's own
+          screen is always trusted.</p>
+        <form id="gc-access-form" class="border rounded p-3">
+          <div class="mb-3">
+            <label class="form-label">Settings password
+              {% if settings_password_set %}<span class="badge bg-success">set</span>{% endif %}
+            </label>
+            <input class="form-control" type="password" name="settings_password"
+                   autocomplete="new-password" placeholder="Leave blank to keep the current password">
+          </div>
+          <button class="btn btn-primary" type="submit">Save password</button>
+          {% if settings_password_set %}
+          <button class="btn btn-outline-danger ms-2" type="button" id="gc-password-clear">Remove password</button>
+          {% endif %}
+        </form>
+      </section>
+
+      <section class="mb-4">
+        <h2 class="h5">Saved credentials</h2>
+        <p class="text-secondary small">Save a camera login once, then apply it when
+          you scan, preview, or add a camera. Passwords are kept on this device and
+          are never shown again.</p>
+        <ul id="gc-cred-list" class="list-group mb-3"></ul>
+        <form id="gc-cred-form" class="border rounded p-3">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input class="form-control" name="name" required placeholder="Front cameras">
+          </div>
+          <div class="row g-3">
+            <div class="col-12 col-sm mb-2">
+              <label class="form-label">Username</label>
+              <input class="form-control" name="username" autocomplete="off">
+            </div>
+            <div class="col-12 col-sm mb-2">
+              <label class="form-label">Password</label>
+              <input class="form-control" type="password" name="password" autocomplete="new-password">
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Save credentials</button>
+          <span class="small ms-2" id="gc-cred-note"></span>
+        </form>
+      </section>
+
+      <section id="system" class="mb-4">
+        <h2 class="h5">System</h2>
+        <div id="gc-system" class="border rounded p-3 small text-secondary">
+          <div>Version {{ app_version }}</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Full-width row: finding cameras. The results table has six columns and a
+       roomy preview row, so it gets the whole page width instead of being
+       squeezed into the left column. -->
+  <div class="row g-4 mt-1">
+    <div class="col-12">
+      <section class="mb-4">
         <h2 class="h5">Find cameras</h2>
-        <p class="text-secondary small">Search the network, or point GlanceCam at a
-          camera brand or Home Assistant. Anything found can be added with one tap,
-          or previewed first to pick the right stream.</p>
+        <p class="text-secondary small">Search the network, or point {{ app_name }} at a
+          camera brand or Home Assistant. Anything found can be added with one tap.
+          Use Find stream to have {{ app_name }} work out the right address for you.</p>
 
-        <div class="mb-3">
-          <label class="form-label small text-secondary">Credentials for probing (optional)</label>
-          <div class="row g-2">
-            <div class="col"><input class="form-control form-control-sm" id="gc-disc-user" placeholder="Username" autocomplete="off"></div>
-            <div class="col"><input class="form-control form-control-sm" id="gc-disc-pass" type="password" placeholder="Password" autocomplete="new-password"></div>
+        <div class="mb-3" data-cred-scope>
+          <label class="form-label">Credentials for probing</label>
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+              <select class="form-select gc-cred-picker" id="gc-disc-cred-select">
+                <option value="">Enter manually</option>
+              </select>
+            </div>
+            <div class="col-6 col-md">
+              <input class="form-control gc-cred-user" id="gc-disc-user" placeholder="Username" autocomplete="off">
+            </div>
+            <div class="col-6 col-md">
+              <input class="form-control gc-cred-pass" id="gc-disc-pass" type="password" placeholder="Password" autocomplete="new-password">
+            </div>
           </div>
         </div>
 
         <div class="d-flex flex-wrap gap-2 mb-2">
-          <button class="btn btn-outline-primary btn-sm" id="gc-scan-btn">Scan network</button>
-          <button class="btn btn-outline-primary btn-sm" id="gc-onvif-btn">ONVIF search</button>
+          <button class="btn btn-outline-primary" id="gc-scan-btn">Scan network</button>
+          <button class="btn btn-outline-primary" id="gc-onvif-btn">ONVIF search</button>
         </div>
         <div id="gc-scan-progress" class="progress gc-scan-bar mb-2 d-none">
           <div class="progress-bar" role="progressbar" style="width: 0%"></div>
         </div>
 
-        <details class="mb-2">
-          <summary class="small">Reolink camera</summary>
-          <form id="gc-reolink-form" class="border rounded p-3 mt-2">
-            <div class="row g-2">
-              <div class="col-12 col-sm"><input class="form-control form-control-sm" name="host" placeholder="Host or IP" required></div>
-              <div class="col"><input class="form-control form-control-sm" name="username" placeholder="Username" autocomplete="off"></div>
-              <div class="col"><input class="form-control form-control-sm" name="password" type="password" placeholder="Password" autocomplete="new-password"></div>
-            </div>
-            <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Find channels</button>
-          </form>
-        </details>
-
-        <details class="mb-2">
-          <summary class="small">Home Assistant cameras</summary>
-          <form id="gc-ha-form" class="border rounded p-3 mt-2">
-            <div class="mb-2"><input class="form-control form-control-sm" name="base_url" placeholder="http://homeassistant.local:8123"></div>
-            <div class="mb-2"><input class="form-control form-control-sm" name="token" type="password" placeholder="Long-lived access token" autocomplete="new-password"></div>
-            <button class="btn btn-outline-primary btn-sm" type="submit">List cameras</button>
-            <span class="small text-secondary ms-2">These are snapshot tiles: no separate sub or main stream.</span>
-          </form>
-        </details>
+        <div class="row g-3 mb-2">
+          <div class="col-12 col-lg-6">
+            <details class="mb-2">
+              <summary class="small">Reolink camera</summary>
+              <form id="gc-reolink-form" class="border rounded p-3 mt-2">
+                <div class="row g-2">
+                  <div class="col-12 col-sm"><input class="form-control form-control-sm" name="host" placeholder="Host or IP" required></div>
+                  <div class="col"><input class="form-control form-control-sm" name="username" placeholder="Username" autocomplete="off"></div>
+                  <div class="col"><input class="form-control form-control-sm" name="password" type="password" placeholder="Password" autocomplete="new-password"></div>
+                </div>
+                <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Find channels</button>
+              </form>
+            </details>
+          </div>
+          <div class="col-12 col-lg-6">
+            <details class="mb-2">
+              <summary class="small">Home Assistant cameras</summary>
+              <form id="gc-ha-form" class="border rounded p-3 mt-2">
+                <div class="mb-2"><input class="form-control form-control-sm" name="base_url" placeholder="http://homeassistant.local:8123"></div>
+                <div class="mb-2"><input class="form-control form-control-sm" name="token" type="password" placeholder="Long-lived access token" autocomplete="new-password"></div>
+                <button class="btn btn-outline-primary btn-sm" type="submit">List cameras</button>
+                <span class="small text-secondary ms-2">These are snapshot tiles: no separate sub or main stream.</span>
+              </form>
+            </details>
+          </div>
+        </div>
 
         <div id="gc-disc-status" class="small text-secondary mt-2"></div>
         <!-- Results are a table; it scrolls sideways on a narrow screen rather
@@ -115,68 +231,6 @@
             </thead>
             <tbody id="gc-disc-results"></tbody>
           </table>
-        </div>
-      </section>
-    </div>
-
-    <!-- Side column: settings that are read more than they are changed. -->
-    <div class="col-12 col-lg-5">
-      <section class="mb-5">
-        <h2 class="h5">Display</h2>
-        <form id="gc-display-form" class="border rounded p-3">
-          <div class="mb-2">
-            <label class="form-label">Theme</label>
-            <select class="form-select" name="theme">
-              <option value="dark" {% if settings.theme == 'dark' %}selected{% endif %}>Dark</option>
-              <option value="light" {% if settings.theme == 'light' %}selected{% endif %}>Light</option>
-            </select>
-          </div>
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="fullscreen_uses_main"
-                   id="fsmain" {% if settings.fullscreen_uses_main %}checked{% endif %}>
-            <label class="form-check-label" for="fsmain">Use the main stream when a tile is full screen</label>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Snapshot refresh (seconds)</label>
-            <input class="form-control" type="number" name="snapshot_refresh_seconds"
-                   min="2" value="{{ settings.snapshot_refresh_seconds }}">
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Kiosk display rotation</label>
-            <select class="form-select" name="kiosk_rotation">
-              {% for deg in [0, 90, 180, 270] %}
-              <option value="{{ deg }}" {% if settings.kiosk_rotation == deg %}selected{% endif %}>{{ deg }} degrees</option>
-              {% endfor %}
-            </select>
-          </div>
-          <button class="btn btn-primary" type="submit">Save display settings</button>
-        </form>
-      </section>
-
-      <section class="mb-5">
-        <h2 class="h5">Access</h2>
-        <p class="text-secondary small">Set a password to lock this settings page
-          and the camera list. The live grid stays open, and the device's own
-          screen is always trusted.</p>
-        <form id="gc-access-form" class="border rounded p-3">
-          <div class="mb-2">
-            <label class="form-label">Settings password
-              {% if settings_password_set %}<span class="badge bg-success">set</span>{% endif %}
-            </label>
-            <input class="form-control" type="password" name="settings_password"
-                   autocomplete="new-password" placeholder="Leave blank to keep the current password">
-          </div>
-          <button class="btn btn-primary" type="submit">Save password</button>
-          {% if settings_password_set %}
-          <button class="btn btn-outline-danger ms-2" type="button" id="gc-password-clear">Remove password</button>
-          {% endif %}
-        </form>
-      </section>
-
-      <section id="system" class="mb-5">
-        <h2 class="h5">System</h2>
-        <div id="gc-system" class="border rounded p-3 small text-secondary">
-          <div>Version {{ app_version }}</div>
         </div>
       </section>
     </div>

@@ -23,13 +23,33 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from ..config import settings
-from ..services import go2rtc, netguard
-from ..services.discovery import homeassistant, jobs, lanscan, onvif, reolink
+from ..services import credentials, go2rtc, netguard
+from ..services.discovery import (homeassistant, jobs, lanscan, onvif, reolink,
+                                  streampaths)
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 _NO_CACHE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 _PREVIEW_TIMEOUT = 5.0
+
+# Auto-find: keep a probe short so trying ten candidates stays bounded (~10 * 4s
+# worst case), and cap how many are tried so a single camera is never hammered.
+_FIND_TIMEOUT = 4.0
+_FIND_MAX = 10
+
+
+def _resolve_creds(data: dict) -> tuple[str, str]:
+    """The (username, password) to probe with, from a saved set or the payload.
+
+    When ``credential_id`` names a saved set it wins, so the browser never has
+    to hold the password. Otherwise the username/password typed into the request
+    are used. Either way the values are used only to reach the device and are
+    never echoed back.
+    """
+    resolved = credentials.resolve(data.get("credential_id") or "")
+    if resolved is not None:
+        return resolved
+    return data.get("username") or "", data.get("password") or ""
 
 
 def classify_preview_url(url: str) -> str:
@@ -103,8 +123,7 @@ async def scan_probe(request: Request):
         return {"ok": False, "error": "No camera address given."}
     if netguard.is_blocked_fetch_host(host, fail_closed=True):
         return {"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE}
-    username = data.get("username") or ""
-    password = data.get("password") or ""
+    username, password = _resolve_creds(data)
     result = await anyio.to_thread.run_sync(
         lambda: lanscan.probe_with_auth(host, username, password))
     return result
@@ -148,8 +167,7 @@ async def reolink_discover(request: Request):
         return {"ok": False, "error": "Enter the camera's address."}
     if netguard.is_blocked_fetch_host(host, fail_closed=True):
         return {"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE}
-    username = data.get("username") or ""
-    password = data.get("password") or ""
+    username, password = _resolve_creds(data)
     result = await anyio.to_thread.run_sync(
         lambda: reolink.probe(host, username, password))
     return result
@@ -256,6 +274,96 @@ async def _preview_rtsp(url: str, username: str, password: str) -> Response:
         {"ok": False, "error": "Could not read a stream from that address."})
 
 
+async def _probe_rtsp_url(url: str, username: str, password: str,
+                          timeout: float = _FIND_TIMEOUT) -> "dict | None":
+    """Probe one RTSP URL through go2rtc, returning its parsed codec/resolution.
+
+    Mirrors ``_preview_rtsp``'s probe (a temp stream, always cleaned up) but
+    hands back the parse result instead of a frame, so the auto-finder can rank
+    candidates. Returns None when go2rtc could not read a stream. The temp
+    stream name is unique per call so parallel-looking cleanups never collide.
+    """
+    src = go2rtc._stream_src(
+        {"username": username, "password": password} if username else {"id": "find"},
+        url)
+    import secrets as _secrets
+    test_name = f"glancecam_find_{_secrets.token_hex(3)}"
+    result = None
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            await client.put(f"{go2rtc._base()}/api/streams",
+                             params={"name": test_name, "src": src})
+            result = await go2rtc.probe(test_name)
+    except (httpx.HTTPError, OSError):
+        result = None
+    finally:
+        try:
+            async with httpx.AsyncClient(timeout=go2rtc._TIMEOUT) as client:
+                await client.delete(f"{go2rtc._base()}/api/streams",
+                                    params={"src": test_name})
+        except (httpx.HTTPError, OSError):
+            pass
+    return result
+
+
+@router.get("/stream-paths")
+async def stream_paths(host: str = "", hint: str = ""):
+    """Every brand's default stream addresses for ``host``, hinted brand first.
+
+    Feeds the preview candidate dropdown so it always lists a main and sub
+    address for each major brand, whether or not a scan detected the brand. When
+    ``host`` is blank the addresses come back with an empty list.
+    """
+    return {"ok": True, "hint": hint or None,
+            "candidates": streampaths.candidate_urls(host.strip(), hint or None)}
+
+
+@router.post("/find-stream")
+async def find_stream(request: Request):
+    """Try the common stream paths for a host and return the first that works.
+
+    Builds the brand candidate list (hinted by an explicit ``hint`` or inferred
+    from the reported open ``ports``), then probes each candidate's main URL
+    through go2rtc in turn, stopping at the first that decodes. The paired sub
+    URL is probed best effort. SSRF fail-closed on the host; credentials (typed
+    or a saved set) are used only to reach the device and never echoed.
+    """
+    data = await _payload(request)
+    host = (data.get("host") or data.get("ip") or "").strip()
+    if not host:
+        return {"ok": False, "error": "No camera address given.", "tried": 0}
+    if netguard.is_blocked_fetch_host(host, fail_closed=True):
+        return {"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE, "tried": 0}
+
+    hint = data.get("hint") or streampaths.likely_brand(data.get("ports"))
+    username, password = _resolve_creds(data)
+    candidates = streampaths.candidate_urls(host, hint)[:_FIND_MAX]
+
+    tried = 0
+    for cand in candidates:
+        main_url = cand.get("main_url")
+        if not main_url:
+            continue
+        tried += 1
+        result = await _probe_rtsp_url(main_url, username, password)
+        if not (result and (result.get("resolution") or result.get("codec"))):
+            continue
+        out = {"ok": True, "brand": cand.get("brand"), "label": cand.get("label"),
+               "main_url": main_url}
+        if result.get("resolution"):
+            out["resolution"] = result["resolution"]
+        sub_url = cand.get("sub_url")
+        if sub_url:
+            sub = await _probe_rtsp_url(sub_url, username, password)
+            if sub and (sub.get("resolution") or sub.get("codec")):
+                out["sub_url"] = sub_url
+        return out
+
+    return {"ok": False, "tried": tried,
+            "error": "None of the common stream addresses answered. Pick one by "
+                     "hand from the list, or check the login."}
+
+
 @router.post("/preview")
 async def preview(request: Request):
     """Preview one candidate URL for a device, SSRF fail-closed.
@@ -278,8 +386,7 @@ async def preview(request: Request):
     if netguard.guard_url(url, fail_closed=True):
         return JSONResponse({"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE},
                             status_code=400)
-    username = data.get("username") or ""
-    password = data.get("password") or ""
+    username, password = _resolve_creds(data)
     if kind == "image":
         return await _preview_image(url, username, password)
     return await _preview_rtsp(url, username, password)

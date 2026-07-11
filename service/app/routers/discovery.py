@@ -18,14 +18,33 @@ password (to probe a device the user chose) and never returns one.
 from __future__ import annotations
 
 import anyio
+import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ..config import settings
-from ..services import netguard
+from ..services import go2rtc, netguard
 from ..services.discovery import homeassistant, jobs, lanscan, onvif, reolink
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
+
+_NO_CACHE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+_PREVIEW_TIMEOUT = 5.0
+
+
+def classify_preview_url(url: str) -> str:
+    """Classify a preview target as ``'image'``, ``'rtsp'``, or ``'unknown'``.
+
+    Pure and side-effect free so it is unit tested on its own. Only http(s) and
+    rtsp are honoured; anything else (file://, a bare host, a data: URL) is
+    ``'unknown'`` and the endpoint refuses it before any fetch.
+    """
+    scheme = (url or "").strip().split("://", 1)[0].lower() if "://" in (url or "") else ""
+    if scheme in ("http", "https"):
+        return "image"
+    if scheme == "rtsp":
+        return "rtsp"
+    return "unknown"
 
 
 async def _payload(request: Request) -> dict:
@@ -157,3 +176,110 @@ async def homeassistant_discover(request: Request):
         except OSError:
             pass  # a read-only data dir must not fail the discovery itself
     return result
+
+
+async def _preview_image(url: str, username: str, password: str) -> Response:
+    """Fetch a snapshot URL server-side and return the image, or a JSON error.
+
+    Tries no-auth first, then digest and basic when credentials are given (a
+    camera may use either). Validates image magic bytes before returning so an
+    HTML error page is never handed back as a picture. Credentials are used only
+    to fetch; they are never echoed.
+    """
+    attempts = [None]
+    if username:
+        attempts.append(httpx.DigestAuth(username, password))
+        attempts.append(httpx.BasicAuth(username, password))
+    try:
+        async with httpx.AsyncClient(timeout=_PREVIEW_TIMEOUT,
+                                     follow_redirects=True) as client:
+            for auth in attempts:
+                try:
+                    resp = await client.get(url, auth=auth)
+                except (httpx.HTTPError, OSError):
+                    continue
+                if resp.status_code == 200 and \
+                        lanscan.looks_like_image_bytes(resp.content):
+                    media = resp.headers.get("content-type", "image/jpeg")
+                    if not media.lower().startswith("image/"):
+                        media = "image/jpeg"
+                    return Response(content=resp.content, media_type=media,
+                                    headers=_NO_CACHE)
+    except (httpx.HTTPError, OSError):
+        pass
+    return JSONResponse(
+        {"ok": False, "error": "Could not load a snapshot from that address."})
+
+
+async def _preview_rtsp(url: str, username: str, password: str) -> Response:
+    """Round-trip an RTSP URL through go2rtc and return a real JPEG frame.
+
+    Mirrors ``POST /api/cameras/test``: add a temporary stream, probe it, and
+    ask go2rtc for a frame, then always delete the temp stream. Returns the
+    frame as an image when go2rtc could decode one, otherwise JSON with the
+    resolution (when known) or a clean error.
+    """
+    src = go2rtc._stream_src(
+        {"username": username, "password": password} if username else {"id": "preview"},
+        url)
+    test_name = "glancecam_preview_probe"
+    result = None
+    frame = None
+    try:
+        async with httpx.AsyncClient(timeout=go2rtc._TIMEOUT) as client:
+            await client.put(f"{go2rtc._base()}/api/streams",
+                             params={"name": test_name, "src": src})
+            result = await go2rtc.probe(test_name)
+            try:
+                fr = await client.get(f"{go2rtc._base()}/api/frame.jpeg",
+                                      params={"src": test_name})
+                if fr.status_code == 200 and fr.content:
+                    frame = fr.content
+            except (httpx.HTTPError, OSError):
+                pass
+    except (httpx.HTTPError, OSError):
+        pass
+    finally:
+        try:
+            async with httpx.AsyncClient(timeout=go2rtc._TIMEOUT) as client:
+                await client.delete(f"{go2rtc._base()}/api/streams",
+                                    params={"src": test_name})
+        except (httpx.HTTPError, OSError):
+            pass
+
+    if frame:
+        return Response(content=frame, media_type="image/jpeg", headers=_NO_CACHE)
+    if result and result.get("resolution"):
+        return JSONResponse({"ok": True, "resolution": result["resolution"],
+                             "codec": result.get("codec")})
+    return JSONResponse(
+        {"ok": False, "error": "Could not read a stream from that address."})
+
+
+@router.post("/preview")
+async def preview(request: Request):
+    """Preview one candidate URL for a device, SSRF fail-closed.
+
+    An http(s) snapshot URL is fetched and returned as an image; an rtsp:// URL
+    is decoded by go2rtc into a JPEG frame. Any other scheme, or an internal or
+    unresolvable target, is refused with clean JSON (never a 500). Credentials
+    are used only to reach the device and are never returned.
+    """
+    data = await _payload(request)
+    url = (data.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"ok": False, "error": "Enter a URL to preview."},
+                            status_code=400)
+    kind = classify_preview_url(url)
+    if kind == "unknown":
+        return JSONResponse(
+            {"ok": False, "error": "That is not a snapshot or RTSP address."},
+            status_code=400)
+    if netguard.guard_url(url, fail_closed=True):
+        return JSONResponse({"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE},
+                            status_code=400)
+    username = data.get("username") or ""
+    password = data.get("password") or ""
+    if kind == "image":
+        return await _preview_image(url, username, password)
+    return await _preview_rtsp(url, username, password)

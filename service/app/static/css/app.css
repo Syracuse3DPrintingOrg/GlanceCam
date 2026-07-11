@@ -225,15 +225,47 @@ html, body {
 .gc-badge-dot {
   font-size: 0.72rem;
 }
-.gc-proposal img {
+.gc-scan-bar {
+  height: 6px;
+}
+
+/* ---- Discovery results table ----------------------------------------- */
+
+/* A quiet, dense results table. The wrapper (Bootstrap .table-responsive)
+   handles sideways scroll on a narrow screen so the page never does. */
+.gc-results-table {
+  font-size: 0.9rem;
+}
+.gc-results-table th {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+.gc-results-table a {
+  color: var(--gc-accent);
+  text-decoration: none;
+}
+.gc-results-table a:hover {
+  text-decoration: underline;
+}
+.gc-row-note {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* The preview expansion row: a calm inset panel, no strong borders. */
+.gc-preview-row > td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.gc-preview-note {
+  color: rgba(255, 255, 255, 0.6);
+}
+.gc-preview-thumb img {
+  max-width: 320px;
+  max-height: 200px;
   width: 100%;
-  height: 150px;
   object-fit: contain;
   background: #000;
   border-radius: 4px;
-}
-.gc-scan-bar {
-  height: 6px;
 }
 .gc-inline-edit {
   background: rgba(255, 255, 255, 0.03);

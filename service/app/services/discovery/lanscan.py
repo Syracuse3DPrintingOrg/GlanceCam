@@ -68,13 +68,23 @@ def _image_size(data: bytes) -> Optional[list]:
         return None
 
 
+def looks_like_image_bytes(data: bytes) -> bool:
+    """True when a byte string begins with JPEG or PNG magic.
+
+    Exported so the discovery preview endpoint validates a fetched body the same
+    way the scan does, without duplicating the magic-byte check.
+    """
+    if not data:
+        return False
+    return data[:2] == b"\xff\xd8" or data[:3] == b"\x89PN"  # JPEG / PNG magic
+
+
 def _looks_like_image(resp: httpx.Response) -> bool:
     """True when an HTTP response body is a JPEG/PNG image."""
     ctype = resp.headers.get("content-type", "").lower()
     if ctype.startswith("image/"):
         return True
-    body = resp.content[:3]
-    return body[:2] == b"\xff\xd8" or body[:3] == b"\x89PN"  # JPEG / PNG magic
+    return looks_like_image_bytes(resp.content[:3])
 
 
 def _port_open(ip: str, port: int, timeout: float) -> bool:

@@ -1,3 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# App data (camera list, settings, secrets)
+data/
+service/data/
+
+# Local env
+.env
 
 # Beads / Dolt files (added by bd init)
 .dolt/

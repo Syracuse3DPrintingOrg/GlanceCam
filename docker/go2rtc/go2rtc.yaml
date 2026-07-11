@@ -1,0 +1,17 @@
+# Base go2rtc config. GlanceCam owns the stream table at runtime through
+# go2rtc's REST API (it adds/removes {id}_main and {id}_sub streams as you add
+# and remove cameras), so no streams are listed here on purpose.
+
+api:
+  listen: ":1984"
+
+# WebRTC must be reachable from LAN browsers, so this port is published to the
+# host in the compose files. TCP plus UDP.
+webrtc:
+  listen: ":8555"
+
+rtsp:
+  listen: ":8554"
+
+log:
+  level: info

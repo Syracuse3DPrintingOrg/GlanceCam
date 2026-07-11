@@ -1,0 +1,43 @@
+# Dev compose: builds the app locally and runs it with --reload alongside the
+# official go2rtc image. A pull applies app changes live (the code is
+# volume-mounted); rebuild only for requirements.txt or Dockerfile changes.
+#
+#   docker compose up -d --build
+#   # then open http://YOUR-HOST:9292
+services:
+  app:
+    build: ./service
+    container_name: glancecam-app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - TZ=${TZ:-America/New_York}
+      # The app reaches go2rtc's REST API over the compose network. The
+      # /go2rtc/* reverse proxy in the app forwards browser stream traffic here
+      # so only the app port faces the LAN.
+      - GLANCECAM_GO2RTC_URL=http://go2rtc:1984
+    # Dev workflow: mount the code and run with --reload. The published image's
+    # default command omits --reload.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./service/app:/srv/service/app
+      - ./data:/srv/service/data
+    ports:
+      - "9292:8000"
+    depends_on:
+      - go2rtc
+    restart: unless-stopped
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: glancecam-go2rtc
+    volumes:
+      - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      # WebRTC must reach LAN browsers directly, so it is published to the host
+      # on both TCP and UDP. The REST API (1984) and RTSP (8554) stay on the
+      # internal compose network; the app talks to the API by service name.
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+    restart: unless-stopped

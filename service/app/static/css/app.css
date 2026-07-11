@@ -1,0 +1,99 @@
+/* Minimal dark grid styling for milestone 1. The UI agent will restyle. */
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #0b0b0d;
+}
+
+.gc-body {
+  min-height: 100%;
+}
+
+/* The grid fills the viewport and lays tiles out in a uniform grid. grid.js
+   sets --gc-cols based on the camera count; this keeps tiles square-ish. */
+.gc-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--gc-cols, 2), 1fr);
+  gap: 4px;
+  padding: 4px;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.gc-tile {
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  min-height: 0;
+}
+
+.gc-tile video-stream,
+.gc-tile video,
+.gc-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.gc-tile-label {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  padding: 1px 8px;
+  font: 12px/1.4 system-ui, sans-serif;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+/* A single tile expanded to fill the whole grid area. */
+.gc-tile.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  border-radius: 0;
+}
+
+.gc-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #ccc;
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+.gc-gear {
+  position: fixed;
+  top: 10px;
+  right: 12px;
+  z-index: 60;
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.gc-body:hover .gc-gear {
+  opacity: 1;
+}
+
+/* Kiosk mode hides the gear and the cursor entirely. */
+.gc-body.kiosk .gc-gear {
+  display: none;
+}
+
+.gc-body.kiosk {
+  cursor: none;
+}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Sign in - {{ app_name }}{% endblock %}
+{% block body %}
+<div class="container py-5" style="max-width: 380px;">
+  <h1 class="h4 mb-3">{{ app_name }}</h1>
+  <p class="text-secondary small">Enter the settings password to make changes.
+    The live grid is always available without signing in.</p>
+  <form id="gc-login-form" class="border rounded p-3">
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input class="form-control" type="password" name="password" autofocus autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary w-100" type="submit">Sign in</button>
+    <div id="gc-login-error" class="text-danger small mt-2"></div>
+  </form>
+  <a class="d-block mt-3 small" href="/">Back to the grid</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('gc-login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const password = e.target.password.value;
+  const resp = await fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password}),
+  });
+  if (resp.ok) {
+    window.location = '/settings';
+  } else {
+    document.getElementById('gc-login-error').textContent = 'That password did not match.';
+  }
+});
+</script>
+{% endblock %}

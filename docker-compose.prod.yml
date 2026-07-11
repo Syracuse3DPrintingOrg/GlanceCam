@@ -1,0 +1,61 @@
+# Production compose: runs the prebuilt image from GHCR, no local build needed.
+#
+#   curl -fsSL https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/docker-compose.prod.yml -o docker-compose.yml
+#   docker compose up -d
+#   # then open http://YOUR-HOST:9292
+#
+# Pin a version by setting GLANCECAM_TAG (e.g. v0.1.0); defaults to latest.
+services:
+  app:
+    image: ghcr.io/syracuse3dprintingorg/glancecam:${GLANCECAM_TAG:-latest}
+    container_name: glancecam-app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - GLANCECAM_GO2RTC_URL=http://go2rtc:1984
+    volumes:
+      - ./data:/srv/service/data
+    ports:
+      - "9292:8000"
+    depends_on:
+      - go2rtc
+    restart: unless-stopped
+    # Watchtower only touches containers carrying this label (see the watchtower
+    # service below), so auto-updates recreate only the app, never go2rtc.
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  go2rtc:
+    image: alexxit/go2rtc:latest
+    container_name: glancecam-go2rtc
+    volumes:
+      - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+    ports:
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+    restart: unless-stopped
+
+  # Automatic updates for the server install, ON BY DEFAULT. Watchtower watches
+  # the GlanceCam image on GHCR and, when a new version is published, pulls it
+  # and recreates the app container (which brings in updated Python
+  # dependencies, since they are baked into the image).
+  #
+  # WATCHTOWER_LABEL_ENABLE means it ONLY touches containers carrying the
+  # com.centurylinklabs.watchtower.enable=true label (just the app above), so
+  # go2rtc stays on its own image and is never auto-recreated out from under a
+  # live stream. Security note: Watchtower needs the Docker socket, which is
+  # host-root-equivalent access. To turn auto-updates OFF, stop this one service
+  # (docker compose stop watchtower) or pin GLANCECAM_TAG to a fixed version.
+  watchtower:
+    image: containrrr/watchtower:1.7.1   # pinned
+    container_name: glancecam-watchtower
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_POLL_INTERVAL:-86400}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

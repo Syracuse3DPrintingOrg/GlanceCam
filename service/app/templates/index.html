@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }}{% endblock %}
+{% block body %}
+<div id="gc-grid" class="gc-grid" data-camera-count="{{ cameras|length }}">
+  {% for cam in cameras %}
+  <div class="gc-tile" data-camera-id="{{ cam.id }}"
+       data-name="{{ cam.name }}"
+       data-has-sub="{{ 'true' if cam.sub_url else 'false' }}"
+       data-fullscreen-main="{{ 'true' if cam.fullscreen_uses_main else 'false' }}">
+    <div class="gc-tile-label">{{ cam.name }}</div>
+  </div>
+  {% else %}
+  <div class="gc-empty">
+    <p>No cameras yet.</p>
+    <a class="btn btn-primary" href="/settings">Add a camera</a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if not settings_locked or not is_pi %}
+<a class="gc-gear" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
+{% endif %}
+
+<script type="module" src="/static/js/vendor/video-stream.js"></script>
+{% endblock %}
+{% block scripts %}
+<script type="module" src="/static/js/grid.js"></script>
+<script src="/static/js/kiosk.js"></script>
+{% endblock %}

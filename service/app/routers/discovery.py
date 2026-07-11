@@ -247,7 +247,11 @@ async def _preview_rtsp(url: str, username: str, password: str) -> Response:
         async with httpx.AsyncClient(timeout=go2rtc._TIMEOUT) as client:
             await client.put(f"{go2rtc._base()}/api/streams",
                              params={"name": test_name, "src": src})
-            result = await go2rtc.probe(test_name)
+            # Ask for the frame BEFORE probing: go2rtc connects to a camera
+            # only when something consumes the stream, and the frame request
+            # is that consumer. Even when the JPEG fails (an H265 stream with
+            # no ffmpeg on the host) the attempt leaves the producer connected
+            # so the probe can still read the codec and resolution.
             try:
                 fr = await client.get(f"{go2rtc._base()}/api/frame.jpeg",
                                       params={"src": test_name})
@@ -255,6 +259,7 @@ async def _preview_rtsp(url: str, username: str, password: str) -> Response:
                     frame = fr.content
             except (httpx.HTTPError, OSError):
                 pass
+            result = await go2rtc.probe(test_name)
     except (httpx.HTTPError, OSError):
         pass
     finally:
@@ -267,8 +272,11 @@ async def _preview_rtsp(url: str, username: str, password: str) -> Response:
 
     if frame:
         return Response(content=frame, media_type="image/jpeg", headers=_NO_CACHE)
-    if result and result.get("resolution"):
-        return JSONResponse({"ok": True, "resolution": result["resolution"],
+    # A readable stream is a success even without a thumbnail: go2rtc needs
+    # ffmpeg on the host to turn an H265 stream into a JPEG, so codec-only
+    # results are common and the stream itself is fine.
+    if result and (result.get("resolution") or result.get("codec")):
+        return JSONResponse({"ok": True, "resolution": result.get("resolution"),
                              "codec": result.get("codec")})
     return JSONResponse(
         {"ok": False, "error": "Could not read a stream from that address."})
@@ -293,6 +301,14 @@ async def _probe_rtsp_url(url: str, username: str, password: str,
         async with httpx.AsyncClient(timeout=timeout) as client:
             await client.put(f"{go2rtc._base()}/api/streams",
                              params={"name": test_name, "src": src})
+            # Force the producer to connect (see _preview_rtsp): without a
+            # consumer go2rtc never dials the camera and the probe sees an
+            # empty stream, so every candidate would look dead.
+            try:
+                await client.get(f"{go2rtc._base()}/api/frame.jpeg",
+                                 params={"src": test_name})
+            except (httpx.HTTPError, OSError):
+                pass
             result = await go2rtc.probe(test_name)
     except (httpx.HTTPError, OSError):
         result = None

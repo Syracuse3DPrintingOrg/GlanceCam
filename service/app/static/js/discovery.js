@@ -388,8 +388,10 @@ function buildPreviewRow(prop, creds, rowNote) {
       thumbWrap.classList.remove('d-none');
       note.textContent = 'Snapshot loaded.';
     } else if (res.data && res.data.ok) {
-      note.textContent = 'Reachable' +
-        (res.data.resolution ? ` (${res.data.resolution[0]}x${res.data.resolution[1]})` : '');
+      const bits = [];
+      if (res.data.codec) bits.push(res.data.codec);
+      if (res.data.resolution) bits.push(`${res.data.resolution[0]}x${res.data.resolution[1]}`);
+      note.textContent = `Stream works${bits.length ? ` (${bits.join(', ')})` : ''}.`;
     } else {
       note.textContent = (res.data && res.data.error) || 'No response.';
     }

@@ -320,10 +320,11 @@ install_docker_mode() {
 GLANCECAM_USER="glancecam"
 
 ensure_native_deps() {
-  say "Installing system packages (Python, venv, curl)"
+  say "Installing system packages (Python, venv, curl, ffmpeg)"
   apt-get update -y
+  # ffmpeg lets go2rtc make JPEG previews and snapshots from H265 cameras.
   apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip curl ca-certificates git \
+    python3 python3-venv python3-pip curl ca-certificates git ffmpeg \
     || die "Package install failed"
 }
 

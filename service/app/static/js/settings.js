@@ -358,8 +358,11 @@ function escapeAttr(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-// Exposed for discovery.js to refresh the list after a one-tap add.
+// Exposed for discovery.js to refresh the list after a one-tap add, refresh the
+// credential pickers after it saves a login, and know whether any login exists.
 window.gcReloadCameras = loadCameras;
+window.gcReloadCredentials = loadCredentials;
+window.gcCredentialCount = () => credsCache.length;
 window.gcEscapeHtml = escapeHtml;
 window.gcApi = api;
 

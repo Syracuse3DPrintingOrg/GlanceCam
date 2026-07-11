@@ -1,9 +1,13 @@
-// Camera discovery: scan the LAN, ONVIF, Reolink, and Home Assistant. Every
-// path returns proposed cameras that add with one tap. Find stream asks the
-// server to work out a camera's RTSP address so the user never guesses a path.
-// If an endpoint is missing this degrades to a short "not available yet" note
-// rather than an error. Wrapped in an IIFE: this loads alongside settings.js in
-// the same global scope, and shared top-level names would stop the whole script.
+// Camera discovery, shaped as one guided flow: type a login, press "Find my
+// cameras", and each camera that answers arrives with its streams already
+// worked out and a single "Add to grid" button. The network scan runs first,
+// then find-stream runs for each RTSP device one at a time (so a camera is
+// never hammered), and a thumbnail is fetched for the ones that resolve. ONVIF,
+// Reolink, and Home Assistant sit under "More ways" for the cameras a plain
+// scan misses. Everything degrades cleanly: no login still lists devices and
+// offers the manual preview flow; a missing endpoint shows a short note, not an
+// error. Wrapped in an IIFE because it shares the page's global scope with
+// settings.js, where a stray top-level name would break both files.
 (() => {
 'use strict';
 
@@ -14,6 +18,17 @@ const progressWrap = document.getElementById('gc-scan-progress');
 const progressBar = progressWrap ? progressWrap.querySelector('.progress-bar') : null;
 const escapeHtml = window.gcEscapeHtml || ((s) => String(s));
 const RESULT_COLS = 6;  // keep in sync with the results table header
+
+// What is already on the grid, refreshed before each discovery run so a device
+// that is already a camera reads as "Already added" instead of offering to add
+// it twice. Only id/host/main_url/ha_entity come back (no credentials).
+let knownCache = [];
+async function refreshKnown() {
+  const r = await fetch('/api/cameras/urls');
+  let data = null;
+  try { data = await r.json(); } catch (e) { /* empty */ }
+  knownCache = (r.ok && Array.isArray(data)) ? data : [];
+}
 
 // The login to probe with: a saved set (sent as credential_id so the browser
 // never holds the password) when one is chosen, else the typed username and
@@ -26,6 +41,9 @@ function getActiveCreds() {
     username: (document.getElementById('gc-disc-user') || {}).value || '',
     password: (document.getElementById('gc-disc-pass') || {}).value || '',
   };
+}
+function hasLogin(creds) {
+  return !!(creds && (creds.credential_id || creds.username));
 }
 
 // The credential fields to put in a request body, from whatever getActiveCreds
@@ -59,6 +77,19 @@ function showProgress(pct) {
   if (progressBar && pct != null) progressBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+// A button that shows it is working: disabled with a new label, restored later.
+function setBusy(btn, label) {
+  if (!btn) return;
+  if (label != null) {
+    if (btn.dataset.orig === undefined) btn.dataset.orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = label;
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.orig !== undefined) { btn.textContent = btn.dataset.orig; delete btn.dataset.orig; }
+  }
+}
+
 async function post(path, body) {
   try {
     const r = await fetch(path, {
@@ -84,19 +115,35 @@ function proposalsOf(data) {
   return [];
 }
 
-function renderProposals(list, extraCreds) {
-  if (!resultsEl) return;
-  if (!list.length) {
-    if (!resultsEl.children.length) setStatus('Nothing new found.');
-    return;
-  }
-  for (const prop of list) renderRow(prop, extraCreds);
-  const found = resultsEl.querySelectorAll('tr:not(.gc-preview-row)').length;
-  setStatus(`Found ${found}.`);
-  showResults();
+// ---- Matching a device to a camera already on the grid ---------------------
+
+// The path part of a stream/snapshot URL, trailing slashes trimmed, for
+// comparing two URLs on the same host.
+function pathOf(url) {
+  const m = /^[a-z]+:\/\/[^/]+(\/[^?#]*)/i.exec(url || '');
+  return m ? m[1].replace(/\/+$/, '') : '';
 }
 
-// ---- One device, one table row (plus a hidden preview row) -----------------
+// True when a proposal points at a device already added. Matches a Home
+// Assistant entity exactly, otherwise the host (and, when the proposal already
+// carries a stream URL, the path too, so a second channel on the same host is
+// not mistaken for the first).
+function alreadyAdded(prop) {
+  if (prop.ha_entity && knownCache.some((c) => c.ha_entity && c.ha_entity === prop.ha_entity)) {
+    return true;
+  }
+  const host = hostOf(prop);
+  if (!host) return false;
+  const url = prop.main_url || prop.snapshot_url || '';
+  const path = pathOf(url);
+  return knownCache.some((c) => {
+    if (!c.host || c.host !== host) return false;
+    if (!url || !c.main_url) return true;             // same host, no path to compare
+    return pathOf(c.main_url) === path;
+  });
+}
+
+// ---- Reading a proposal ----------------------------------------------------
 
 // The IP the row links to. Scan proposals carry ``ip``; ONVIF/Reolink/HA ones
 // only carry stream URLs, so fall back to the host inside the first URL we have.
@@ -154,6 +201,14 @@ function detailText(prop) {
   return bits.join(' ');
 }
 
+// The editable name a found camera arrives with; the user can change it before
+// adding.
+function resolvedName(prop) {
+  if (prop.name) return prop.name;
+  const host = hostOf(prop);
+  return host ? `Camera at ${host}` : 'Camera';
+}
+
 // The URLs already known for a device: what a probe returned, no guessing. The
 // full brand list is added to the preview dropdown separately (loadAllCandidates).
 function candidatesFor(prop) {
@@ -196,9 +251,10 @@ async function loadAllCandidates(prop) {
 }
 
 // Save a proposal, mapping the chosen URL to the right field (an rtsp:// URL is
-// a stream, anything else is treated as a snapshot).
+// a stream, anything else is treated as a snapshot). Refreshes the grid and the
+// already-added map on success. Returns whether it saved.
 async function addProposal(prop, name, url, creds, statusEl2, addBtn) {
-  if (addBtn) addBtn.disabled = true;
+  if (addBtn) setBusy(addBtn, 'Adding...');
   const payload = { ...prop, name: name || prop.name || 'Camera' };
   delete payload.ports; delete payload.rtsp; delete payload.auth_required;
   delete payload.brand; delete payload.brand_hint; delete payload.notes; delete payload.ip;
@@ -211,14 +267,31 @@ async function addProposal(prop, name, url, creds, statusEl2, addBtn) {
   if (ok) {
     if (statusEl2) statusEl2.textContent = 'Added';
     if (window.gcReloadCameras) window.gcReloadCameras();
+    await refreshKnown();
   } else {
-    if (addBtn) addBtn.disabled = false;
+    if (addBtn) setBusy(addBtn, null);
     if (statusEl2) statusEl2.textContent = (data && data.detail) || 'Could not add';
   }
   return ok;
 }
 
-function renderRow(prop, extraCreds) {
+// ---- One device, one row (plus a hidden preview/details row) ---------------
+
+const STATE_NOTES = {
+  'needs-login': 'Needs a login. Add one above, then find it again.',
+  'login-refused': 'The login was refused: check the password.',
+  'could-not': 'Could not auto-detect. Open Details to pick an address.',
+  'pending': 'Ready to check.',
+  'manual': 'Open Details to preview and add it.',
+};
+
+function viewGridLink() {
+  return `<a class="small" href="/">View grid</a>`;
+}
+
+// Build a row and return a small controller so the finder can drive it through
+// its states (checking, ready, needs-login, and so on) as it works.
+function makeRow(prop, extraCreds) {
   const creds = { ...(extraCreds || {}) };
   if (!creds.credential_id) {
     if (!creds.username && prop.username) creds.username = prop.username;
@@ -226,7 +299,8 @@ function renderRow(prop, extraCreds) {
   }
 
   const host = hostOf(prop);
-  const rtsp = hasRtsp(prop);
+  const isRtsp = hasRtsp(prop);
+  const already = alreadyAdded(prop);
   const ipCell = host
     ? `<a href="http://${escapeAttr(host)}" target="_blank" rel="noopener">${escapeHtml(host)}</a>`
     : '<span class="text-secondary">unknown</span>';
@@ -237,66 +311,134 @@ function renderRow(prop, extraCreds) {
     `<td>${escapeHtml(brandText(prop))}</td>` +
     `<td>${protocolBadges(prop)}</td>` +
     `<td class="text-secondary small">${escapeHtml((prop.ports || []).join(', '))}</td>` +
-    `<td class="text-secondary small">${escapeHtml(detailText(prop))}</td>` +
-    `<td class="text-end text-nowrap">` +
-      (rtsp ? `<button class="btn btn-primary btn-sm" data-act="find">Find stream</button> ` : '') +
-      `<button class="btn btn-outline-secondary btn-sm" data-act="preview">Preview</button> ` +
-      `<button class="btn ${rtsp ? 'btn-outline-secondary' : 'btn-primary'} btn-sm" data-act="add">Add</button>` +
-      `<div class="small gc-row-note"></div>` +
+    `<td class="gc-row-detail text-secondary small">` +
+      `<div class="gc-row-thumb d-none mb-1"><img alt="Camera preview"></div>` +
+      `<div>${escapeHtml(detailText(prop))}</div>` +
+    `</td>` +
+    `<td class="text-end gc-row-add">` +
+      `<div class="gc-row-actions d-flex flex-column align-items-end gap-1"></div>` +
+      `<div class="small gc-row-note mt-1"></div>` +
     `</td>`;
 
+  const actions = tr.querySelector('.gc-row-actions');
   const note = tr.querySelector('.gc-row-note');
-  const previewRow = buildPreviewRow(prop, creds, note);
+  const thumbWrap = tr.querySelector('.gc-row-thumb');
+  const thumb = thumbWrap.querySelector('img');
 
-  tr.querySelector('[data-act="add"]').addEventListener('click', (e) => {
-    const cand = candidatesFor(prop)[0];
-    addProposal(prop, prop.name, cand ? cand.url : '', creds, note, e.currentTarget);
-  });
-  tr.querySelector('[data-act="preview"]').addEventListener('click', async () => {
+  const previewRow = buildPreviewRow(prop, creds, note, () => controller.setState('added'));
+
+  function openDetails() {
     const opening = previewRow.classList.contains('d-none');
-    previewRow.classList.toggle('d-none');
-    if (opening) await previewRow._populate();
-  });
-  const findBtn = tr.querySelector('[data-act="find"]');
-  if (findBtn) {
-    findBtn.addEventListener('click', () => runFindStream(prop, previewRow, note, findBtn));
+    previewRow.classList.toggle('d-none', !opening);
+    if (opening) previewRow._populate();
   }
+
+  async function showThumb(url, useCreds) {
+    thumbWrap.classList.add('d-none');
+    const res = await previewProbe(url, useCreds);
+    if (res.blob) {
+      thumb.src = URL.createObjectURL(res.blob);
+      thumbWrap.classList.remove('d-none');
+    }
+  }
+
+  function setState(state, info) {
+    info = info || {};
+    actions.innerHTML = '';
+
+    if (state === 'already' || state === 'added') {
+      note.textContent = state === 'added' ? 'On the grid.' : 'Already added.';
+      actions.innerHTML = viewGridLink();
+      return;
+    }
+
+    if (state === 'checking') {
+      note.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' +
+        'Looking for its streams...';
+      return;
+    }
+
+    if (state === 'ready' || state === 'snapshot') {
+      const url = state === 'ready' ? prop.main_url : prop.snapshot_url;
+      note.textContent = info.note ||
+        (state === 'ready' ? 'Found its streams.' : 'Has a snapshot.');
+      actions.innerHTML =
+        `<input class="form-control form-control-sm gc-row-name" ` +
+          `value="${escapeAttr(resolvedName(prop))}" aria-label="Camera name">` +
+        `<div class="d-flex gap-1">` +
+          `<button class="btn btn-primary btn-sm" data-a="add">Add to grid</button>` +
+          `<button class="btn btn-outline-secondary btn-sm" data-a="details">Details</button>` +
+        `</div>`;
+      const nameEl = actions.querySelector('.gc-row-name');
+      actions.querySelector('[data-a="add"]').addEventListener('click', async (e) => {
+        const ok = await addProposal(prop, nameEl.value, url, getActiveCreds(), null, e.currentTarget);
+        if (ok) { setState('added'); maybeSaveLogin(); }
+        else { note.textContent = 'Could not add it. Open Details to check the address.'; }
+      });
+      actions.querySelector('[data-a="details"]').addEventListener('click', openDetails);
+      return;
+    }
+
+    // pending / needs-login / login-refused / could-not / manual
+    note.textContent = info.note || info.error || STATE_NOTES[state] || '';
+    const parts = [];
+    if (isRtsp) parts.push(`<button class="btn btn-outline-primary btn-sm" data-a="find">Find stream</button>`);
+    parts.push(`<button class="btn btn-outline-secondary btn-sm" data-a="details">Details</button>`);
+    actions.innerHTML = `<div class="d-flex gap-1">${parts.join('')}</div>`;
+    const findBtn = actions.querySelector('[data-a="find"]');
+    if (findBtn) findBtn.addEventListener('click', () => autoFind(controller, getActiveCreds(), findBtn));
+    actions.querySelector('[data-a="details"]').addEventListener('click', openDetails);
+  }
+
+  const controller = { tr, previewRow, prop, host, isRtsp, alreadyAdded: already, setState, showThumb };
+
+  if (already) setState('already');
+  else if (prop.main_url) setState('ready', { note: 'Ready to add.' });
+  else if (isRtsp) setState('pending');
+  else if (prop.snapshot_url) setState('snapshot');
+  else setState('manual');
 
   resultsEl.append(tr);
   resultsEl.append(previewRow);
+  return controller;
 }
 
-// Ask the server to try the common stream paths for this host and use the first
-// that works. On success the preview row is filled in with a thumbnail and an
-// "Add this" button; on failure it opens for manual picking with every brand's
-// addresses in the dropdown.
-async function runFindStream(prop, previewRow, note, findBtn) {
-  const host = hostOf(prop);
-  if (!host) { note.textContent = 'No address to search.'; return; }
-  findBtn.disabled = true;
-  note.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Looking for the stream...';
-  const creds = getActiveCreds();
+// Ask the server to work out this device's stream from the common brand paths,
+// using the given login. On success the row flips to "ready" with a thumbnail
+// and an "Add to grid" button; on failure it explains the specific next step.
+async function autoFind(row, creds, btn) {
+  const prop = row.prop;
+  const host = row.host || hostOf(prop);
+  if (!host) { row.setState('could-not'); return false; }
+  if (btn) setBusy(btn, 'Looking...');
+  row.setState('checking');
   const { data } = await post('/api/discovery/find-stream', {
     host, ports: prop.ports || [], hint: prop.brand || prop.brand_hint || '',
     ...credsBody(creds),
   });
-  findBtn.disabled = false;
-  previewRow.classList.remove('d-none');
-  await previewRow._populate();
+  if (btn) setBusy(btn, null);
+
   if (data && data.ok) {
+    prop.main_url = data.main_url;
     if (data.sub_url) prop.sub_url = data.sub_url;
-    previewRow._setUrl(data.main_url);
     const res = data.resolution ? ` (${data.resolution[0]}x${data.resolution[1]})` : '';
-    note.textContent = `Found ${data.label || data.brand || 'a stream'}${res}.`;
-    previewRow._showThumb(data.main_url, creds);
-  } else {
-    note.textContent = (data && data.error) || 'No stream found. Pick one below.';
+    const label = data.label || data.brand || 'a stream';
+    row.setState('ready', { note: `Found ${label}${res}.` });
+    row.showThumb(data.main_url, creds);
+    maybeSaveLogin();
+    return true;
   }
+
+  if (!hasLogin(creds)) { row.setState('needs-login'); return false; }
+  const authish = prop.auth_required ||
+    (data && /login|password|auth|credential/i.test(data.error || ''));
+  row.setState(authish ? 'login-refused' : 'could-not', { error: data && data.error });
+  return false;
 }
 
 // The expansion row: pick a URL candidate, enter or reuse credentials, test it
 // (with a real thumbnail when the device can hand one back), then add.
-function buildPreviewRow(prop, creds, rowNote) {
+function buildPreviewRow(prop, creds, rowNote, onAdded) {
   const tr = document.createElement('tr');
   tr.className = 'gc-preview-row d-none';
   tr.innerHTML = `
@@ -352,21 +494,6 @@ function buildPreviewRow(prop, creds, rowNote) {
       : '<option value="">No suggestions, enter one below</option>';
     if (cands.length && !f('url').value) f('url').value = cands[0].url;
   };
-  tr._setUrl = (url) => {
-    f('url').value = url || '';
-    if (sel) {
-      const match = [...sel.options].find((o) => o.value === url);
-      if (match) sel.value = url;
-    }
-  };
-  tr._showThumb = async (url, useCreds) => {
-    thumbWrap.classList.add('d-none');
-    const res = await previewProbe(url, useCreds || currentCreds());
-    if (res.blob) {
-      thumb.src = URL.createObjectURL(res.blob);
-      thumbWrap.classList.remove('d-none');
-    }
-  };
 
   // The row can use its own typed login, or the saved set chosen up top.
   const currentCreds = () => {
@@ -377,12 +504,13 @@ function buildPreviewRow(prop, creds, rowNote) {
     return active;
   };
 
-  tr.querySelector('[data-act="test"]').addEventListener('click', async () => {
+  tr.querySelector('[data-act="test"]').addEventListener('click', async (e) => {
     const url = f('url').value.trim();
     thumbWrap.classList.add('d-none');
     if (!url) { note.textContent = 'Enter an address first.'; return; }
-    note.textContent = 'Testing...';
+    setBusy(e.currentTarget, 'Testing...');
     const res = await previewProbe(url, currentCreds());
+    setBusy(e.currentTarget, null);
     if (res.blob) {
       thumb.src = URL.createObjectURL(res.blob);
       thumbWrap.classList.remove('d-none');
@@ -400,7 +528,11 @@ function buildPreviewRow(prop, creds, rowNote) {
   tr.querySelector('[data-act="add"]').addEventListener('click', async (e) => {
     const ok = await addProposal(prop, f('name').value, f('url').value.trim(),
       currentCreds(), note, e.currentTarget);
-    if (ok && rowNote) rowNote.textContent = 'Added';
+    if (ok) {
+      maybeSaveLogin();
+      if (onAdded) onAdded();
+      else if (rowNote) rowNote.textContent = 'Added';
+    }
   });
 
   return tr;
@@ -436,50 +568,148 @@ function notAvailable(status) {
     : 'That search could not run.');
 }
 
-// ---- Network scan (polling job) --------------------------------------------
+// ---- Save the login on first success ---------------------------------------
 
-async function pollScan(jobId) {
-  const r = await fetch(`/api/discovery/scan/${encodeURIComponent(jobId)}`);
-  if (!r.ok) { notAvailable(r.status); return; }
-  const data = await r.json();
-  let pct = Number.isFinite(data.progress) ? data.progress : null;
-  if (pct == null && data.progress && data.progress.total > 0) {
-    pct = (100 * data.progress.done) / data.progress.total;
+// Until the first login is saved, offer a one-tap "save this for next time".
+// Show it only when nothing is saved yet and a typed (not saved) login is in
+// use, so it never clutters a set-up device.
+let loginSaved = false;
+function updateSaveLoginVisibility() {
+  const row = document.getElementById('gc-save-login-row');
+  if (!row) return;
+  const count = window.gcCredentialCount ? window.gcCredentialCount() : 0;
+  const sel = document.getElementById('gc-disc-cred-select');
+  const usingSaved = !!(sel && sel.value);
+  row.classList.toggle('d-none', loginSaved || count > 0 || usingSaved);
+}
+
+// After the first camera resolves or is added with a typed login, save it as a
+// named set if the user asked, so the next scan does not need it re-typed.
+async function maybeSaveLogin() {
+  if (loginSaved) return;
+  const chk = document.getElementById('gc-save-login');
+  if (!chk || !chk.checked) return;
+  const creds = getActiveCreds();
+  if (creds.credential_id || !creds.username) return;  // only a typed login is savable
+  const nameEl = document.getElementById('gc-save-login-name');
+  const name = (nameEl && nameEl.value.trim()) || 'Camera login';
+  const { ok } = await post('/api/credentials', {
+    name, username: creds.username, password: creds.password,
+  });
+  if (ok) {
+    loginSaved = true;
+    chk.checked = false;
+    if (window.gcReloadCredentials) window.gcReloadCredentials();
+    updateSaveLoginVisibility();
   }
-  showProgress(pct == null ? 5 : pct);
-  const status = (data.status || '').toLowerCase();
-  if (['done', 'complete', 'completed', 'finished', 'error'].includes(status)) {
-    showProgress(null);
-    if (status === 'error') { setStatus('The scan could not finish.'); return; }
-    renderProposals(proposalsOf(data), getActiveCreds());
+}
+
+document.addEventListener('gc-creds-changed', updateSaveLoginVisibility);
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'gc-disc-cred-select') updateSaveLoginVisibility();
+});
+updateSaveLoginVisibility();
+
+// ---- Rendering a batch of proposals (ONVIF / Reolink / HA) ------------------
+
+function renderProposals(list, extraCreds) {
+  if (!list.length) {
+    if (!resultsEl.children.length) setStatus('Nothing new found.');
     return;
   }
-  setTimeout(() => pollScan(jobId), 1200);
+  for (const prop of list) makeRow(prop, extraCreds);
+  const found = resultsEl.querySelectorAll('tr:not(.gc-preview-row)').length;
+  setStatus(`Found ${found}.`);
+  showResults();
+}
+
+// ---- The network scan (a polling job) --------------------------------------
+
+// Run a scan to completion and resolve with its proposals (or null on failure).
+function runScan() {
+  return new Promise((resolve) => {
+    (async () => {
+      const { ok, status, data } = await post('/api/discovery/scan', {});
+      if (!ok || !data) { notAvailable(status); resolve(null); return; }
+      if (!data.job_id) { showProgress(null); resolve(proposalsOf(data)); return; }
+      const jobId = data.job_id;
+      const tick = async () => {
+        const r = await fetch(`/api/discovery/scan/${encodeURIComponent(jobId)}`);
+        if (!r.ok) { notAvailable(r.status); resolve(null); return; }
+        const d = await r.json();
+        let pct = Number.isFinite(d.progress) ? d.progress : null;
+        if (pct == null && d.progress && d.progress.total > 0) {
+          pct = (100 * d.progress.done) / d.progress.total;
+        }
+        showProgress(pct == null ? 5 : pct);
+        const st = (d.status || '').toLowerCase();
+        if (['done', 'complete', 'completed', 'finished', 'error'].includes(st)) {
+          showProgress(null);
+          if (st === 'error') { setStatus('The scan could not finish.'); resolve(null); return; }
+          resolve(proposalsOf(d));
+          return;
+        }
+        setTimeout(tick, 1200);
+      };
+      tick();
+    })();
+  });
+}
+
+// The one primary flow: scan, then auto-detect each RTSP camera's stream one at
+// a time with the active login, so found cameras arrive ready to add.
+async function findMyCameras(btn) {
+  clearResults();
+  await refreshKnown();
+  setStatus('Looking for cameras on your network...');
+  showProgress(3);
+  setBusy(btn, 'Searching...');
+  const proposals = await runScan();
+  setBusy(btn, null);
+  if (!proposals) return;
+  if (!proposals.length) {
+    setStatus('No cameras answered on your network. You can add one by address below.');
+    return;
+  }
+
+  const creds = getActiveCreds();
+  const login = hasLogin(creds);
+  const rows = proposals.map((p) => makeRow(p, creds));
+  showResults();
+  setStatus(login
+    ? `Found ${rows.length}. Checking each one for its streams...`
+    : `Found ${rows.length}. Add a login above, then find them again to auto-detect streams.`);
+
+  // Sequential on purpose: probing cameras one at a time avoids tripping a
+  // camera's connection-limit lockout.
+  let ready = 0;
+  for (const row of rows) {
+    if (row.alreadyAdded || row.prop.main_url || !row.isRtsp) continue;
+    if (!login) { row.setState('needs-login'); continue; }
+    if (await autoFind(row, creds)) ready++;
+  }
+  if (login) {
+    setStatus(`Found ${rows.length}. ${ready} ready to add` +
+      (ready < rows.length ? ', the rest need a look under Details.' : '.'));
+  }
 }
 
 const scanBtn = document.getElementById('gc-scan-btn');
 if (scanBtn) {
-  scanBtn.addEventListener('click', async () => {
-    clearResults();
-    setStatus('Scanning the network...');
-    showProgress(3);
-    const { ok, status, data } = await post('/api/discovery/scan', {});
-    if (!ok || !data) { notAvailable(status); return; }
-    if (data.job_id) { pollScan(data.job_id); return; }
-    // Some builds may answer synchronously with results.
-    showProgress(null);
-    renderProposals(proposalsOf(data), getActiveCreds());
-  });
+  scanBtn.addEventListener('click', () => findMyCameras(scanBtn));
 }
 
-// ---- ONVIF -----------------------------------------------------------------
+// ---- More ways: ONVIF, Reolink, Home Assistant -----------------------------
 
 const onvifBtn = document.getElementById('gc-onvif-btn');
 if (onvifBtn) {
   onvifBtn.addEventListener('click', async () => {
     clearResults();
+    await refreshKnown();
     setStatus('Searching for ONVIF cameras...');
+    setBusy(onvifBtn, 'Searching...');
     const { ok, status, data } = await post('/api/discovery/onvif', {});
+    setBusy(onvifBtn, null);
     if (!ok || !data) { notAvailable(status); return; }
     const list = proposalsOf(data);
     // Devices that came back without stream URLs need credentials to resolve;
@@ -499,13 +729,12 @@ if (onvifBtn) {
   });
 }
 
-// ---- Reolink ---------------------------------------------------------------
-
 const reolinkForm = document.getElementById('gc-reolink-form');
 if (reolinkForm) {
   reolinkForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearResults();
+    await refreshKnown();
     setStatus('Asking the Reolink camera...');
     const fd = new FormData(reolinkForm);
     const body = { host: fd.get('host'), username: fd.get('username'), password: fd.get('password') };
@@ -515,13 +744,12 @@ if (reolinkForm) {
   });
 }
 
-// ---- Home Assistant --------------------------------------------------------
-
 const haForm = document.getElementById('gc-ha-form');
 if (haForm) {
   haForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     clearResults();
+    await refreshKnown();
     setStatus('Listing Home Assistant cameras...');
     const fd = new FormData(haForm);
     const body = { base_url: fd.get('base_url') || undefined, token: fd.get('token') || undefined };

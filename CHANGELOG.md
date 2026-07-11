@@ -18,11 +18,13 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
   automatically, so cameras play in the browser over WebRTC with a snapshot
   fallback when a stream is still warming up. Each camera can carry a main
   and a sub channel, and the grid always plays the lighter sub stream.
-- **Find cameras automatically.** The settings page can sweep your network
-  for cameras, search for ONVIF devices, pull every channel from a Reolink
-  camera or NVR (with main and sub streams filled in for you), and list the
-  cameras Home Assistant already knows about. Each result can be tested and
-  added with one click.
+- **Find cameras automatically.** Enter your camera login once (or pick a
+  saved one), press "Find my cameras", and GlanceCam sweeps your network,
+  works out each camera's main and sub streams by itself, and shows a
+  thumbnail with a single "Add to grid" button. Cameras already on the grid
+  say so instead of offering themselves twice. ONVIF search, Reolink channel
+  listing, and Home Assistant cameras sit under "More ways to find cameras",
+  and every result can still be previewed and picked by hand.
 - **Fits your hardware.** GlanceCam measures what the device showing the grid
   can smoothly decode (a Raspberry Pi 4 handles a few live streams, a desktop
   browser many more) and keeps that many tiles live; the rest show refreshing

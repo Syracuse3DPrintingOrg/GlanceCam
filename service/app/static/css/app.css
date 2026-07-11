@@ -244,6 +244,28 @@ html, body {
   height: 6px;
 }
 
+/* ---- Find cameras: the guided flow ----------------------------------- */
+
+/* Each step sits in its own calm block so the eye moves login, then button,
+   then results without any wizard chrome. */
+.gc-find-step {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+.gc-step-cue {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
+  margin-bottom: 6px;
+}
+.gc-more-ways > summary {
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
 /* ---- Discovery results table ----------------------------------------- */
 
 /* A quiet, dense results table. The wrapper (Bootstrap .table-responsive)
@@ -265,6 +287,22 @@ html, body {
 }
 .gc-row-note {
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* An auto-detected camera's inline thumbnail: small, quiet, black-backed. */
+.gc-row-thumb img {
+  max-width: 160px;
+  max-height: 90px;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+}
+
+/* The per-row add controls: the name field is roomy but capped so the column
+   never sprawls. */
+.gc-row-add .gc-row-name {
+  max-width: 15rem;
 }
 
 /* The preview expansion row: a calm inset panel, no strong borders. */

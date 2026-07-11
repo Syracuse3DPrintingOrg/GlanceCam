@@ -158,63 +158,48 @@
     <div class="col-12">
       <section class="mb-4">
         <h2 class="h5">Find cameras</h2>
-        <p class="text-secondary small">Search the network, or point {{ app_name }} at a
-          camera brand or Home Assistant. Anything found can be added with one tap.
-          Use Find stream to have {{ app_name }} work out the right address for you.</p>
 
-        <div class="mb-3" data-cred-scope>
-          <label class="form-label">Credentials for probing</label>
+        <!-- Step 1: the login. Most cameras refuse a stream until they have it,
+             so it comes first and sits above the one big button. -->
+        <div class="gc-find-step" data-cred-scope>
+          <div class="gc-step-cue">Start with the camera login</div>
+          <p class="text-secondary small mb-2">Most cameras need their login before anything else works.</p>
           <div class="row g-2 align-items-end">
             <div class="col-12 col-md-4">
+              <label class="form-label small mb-1">Saved login</label>
               <select class="form-select gc-cred-picker" id="gc-disc-cred-select">
-                <option value="">Enter manually</option>
+                <option value="">Or type a login below</option>
               </select>
             </div>
             <div class="col-6 col-md">
-              <input class="form-control gc-cred-user" id="gc-disc-user" placeholder="Username" autocomplete="off">
+              <label class="form-label small mb-1">Username</label>
+              <input class="form-control gc-cred-user" id="gc-disc-user" placeholder="admin" autocomplete="off">
             </div>
             <div class="col-6 col-md">
+              <label class="form-label small mb-1">Password</label>
               <input class="form-control gc-cred-pass" id="gc-disc-pass" type="password" placeholder="Password" autocomplete="new-password">
             </div>
           </div>
-        </div>
-
-        <div class="d-flex flex-wrap gap-2 mb-2">
-          <button class="btn btn-outline-primary" id="gc-scan-btn">Scan network</button>
-          <button class="btn btn-outline-primary" id="gc-onvif-btn">ONVIF search</button>
-        </div>
-        <div id="gc-scan-progress" class="progress gc-scan-bar mb-2 d-none">
-          <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-        </div>
-
-        <div class="row g-3 mb-2">
-          <div class="col-12 col-lg-6">
-            <details class="mb-2">
-              <summary class="small">Reolink camera</summary>
-              <form id="gc-reolink-form" class="border rounded p-3 mt-2">
-                <div class="row g-2">
-                  <div class="col-12 col-sm"><input class="form-control form-control-sm" name="host" placeholder="Host or IP" required></div>
-                  <div class="col"><input class="form-control form-control-sm" name="username" placeholder="Username" autocomplete="off"></div>
-                  <div class="col"><input class="form-control form-control-sm" name="password" type="password" placeholder="Password" autocomplete="new-password"></div>
-                </div>
-                <button class="btn btn-outline-primary btn-sm mt-2" type="submit">Find channels</button>
-              </form>
-            </details>
-          </div>
-          <div class="col-12 col-lg-6">
-            <details class="mb-2">
-              <summary class="small">Home Assistant cameras</summary>
-              <form id="gc-ha-form" class="border rounded p-3 mt-2">
-                <div class="mb-2"><input class="form-control form-control-sm" name="base_url" placeholder="http://homeassistant.local:8123"></div>
-                <div class="mb-2"><input class="form-control form-control-sm" name="token" type="password" placeholder="Long-lived access token" autocomplete="new-password"></div>
-                <button class="btn btn-outline-primary btn-sm" type="submit">List cameras</button>
-                <span class="small text-secondary ms-2">These are snapshot tiles: no separate sub or main stream.</span>
-              </form>
-            </details>
+          <!-- Shown only until the first login is saved: a one-tap nudge to keep
+               the login for next time. -->
+          <div class="form-check mt-2 d-none" id="gc-save-login-row">
+            <input class="form-check-input" type="checkbox" id="gc-save-login">
+            <label class="form-check-label small" for="gc-save-login">Save this login as</label>
+            <input class="form-control form-control-sm d-inline-block ms-2 gc-save-login-name"
+                   id="gc-save-login-name" placeholder="Front cameras" style="max-width: 12rem;">
           </div>
         </div>
 
-        <div id="gc-disc-status" class="small text-secondary mt-2"></div>
+        <!-- Step 2: one button. It scans, then auto-detects each camera's stream
+             with the login above, so a found camera arrives ready to add. -->
+        <div class="gc-find-step">
+          <div class="gc-step-cue">Find them</div>
+          <button class="btn btn-primary" id="gc-scan-btn">Find my cameras</button>
+          <div id="gc-scan-progress" class="progress gc-scan-bar mt-2 d-none">
+            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+          </div>
+          <div id="gc-disc-status" class="small text-secondary mt-2"></div>
+        </div>
         <!-- Results are a table; it scrolls sideways on a narrow screen rather
              than forcing the page to. -->
         <div id="gc-disc-results-wrap" class="table-responsive gc-results-wrap mt-2 d-none">
@@ -225,13 +210,43 @@
                 <th scope="col">Manufacturer</th>
                 <th scope="col">Protocols</th>
                 <th scope="col">Ports</th>
-                <th scope="col">Details</th>
-                <th scope="col" class="text-end">Actions</th>
+                <th scope="col">Preview</th>
+                <th scope="col" class="text-end">Add to grid</th>
               </tr>
             </thead>
             <tbody id="gc-disc-results"></tbody>
           </table>
         </div>
+
+        <details class="gc-more-ways mt-3">
+          <summary class="small">More ways to find cameras</summary>
+          <div class="row g-3 mt-1">
+            <div class="col-12 col-lg-4">
+              <button class="btn btn-outline-secondary btn-sm w-100" id="gc-onvif-btn">Search for ONVIF cameras</button>
+              <div class="form-text small">Uses the login above. Good for a camera that ignores a plain scan.</div>
+            </div>
+            <div class="col-12 col-lg-4">
+              <div class="fw-medium small mb-1">Reolink camera</div>
+              <form id="gc-reolink-form">
+                <div class="row g-2">
+                  <div class="col-12"><input class="form-control form-control-sm" name="host" placeholder="Host or IP" required></div>
+                  <div class="col"><input class="form-control form-control-sm" name="username" placeholder="Username" autocomplete="off"></div>
+                  <div class="col"><input class="form-control form-control-sm" name="password" type="password" placeholder="Password" autocomplete="new-password"></div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm mt-2 w-100" type="submit">Find channels</button>
+              </form>
+            </div>
+            <div class="col-12 col-lg-4">
+              <div class="fw-medium small mb-1">Home Assistant cameras</div>
+              <form id="gc-ha-form">
+                <div class="mb-2"><input class="form-control form-control-sm" name="base_url" placeholder="http://homeassistant.local:8123"></div>
+                <div class="mb-2"><input class="form-control form-control-sm" name="token" type="password" placeholder="Long-lived access token" autocomplete="new-password"></div>
+                <button class="btn btn-outline-secondary btn-sm w-100" type="submit">List cameras</button>
+                <div class="form-text small">Snapshot tiles: no separate sub or main stream.</div>
+              </form>
+            </div>
+          </div>
+        </details>
       </section>
     </div>
   </div>

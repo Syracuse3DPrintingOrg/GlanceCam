@@ -1,6 +1,8 @@
 """Camera CRUD API. Responses never carry credentials (public_view)."""
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -38,9 +40,43 @@ def _apply_credential(data: dict) -> dict:
     return data
 
 
+def _url_host(url: str) -> str:
+    """The host of a stream/snapshot URL, lowercased, or empty for a bad URL.
+
+    Pure and side-effect free so it is unit tested on its own. Feeds
+    ``GET /api/cameras/urls`` so the discovery UI can match a scanned device to
+    a camera already on the grid without ever seeing a password.
+    """
+    try:
+        return (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 @router.get("")
 async def list_all():
     return [store.public_view(c) for c in store.list_cameras()]
+
+
+@router.get("/urls")
+async def list_urls():
+    """A credential-free map of what is already on the grid, for discovery.
+
+    The add-camera flow marks a scanned device as "already added" by matching
+    its host (and path) or Home Assistant entity against this list. Only
+    ``id``, ``host``, ``main_url`` and ``ha_entity`` come back, so no username,
+    password, or other field is exposed to the browser.
+    """
+    out = []
+    for cam in store.list_cameras():
+        main_url = cam.get("main_url") or ""
+        out.append({
+            "id": cam.get("id"),
+            "host": _url_host(main_url),
+            "main_url": main_url or None,
+            "ha_entity": cam.get("ha_entity"),
+        })
+    return out
 
 
 @router.post("")

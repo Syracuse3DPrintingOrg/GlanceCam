@@ -148,17 +148,49 @@ async def go2rtc_ws(client_ws: WebSocket):
                 except (WebSocketDisconnect, RuntimeError):
                     pass
 
-            async def upstream_to_client():
+            # Media frames outpace a slow tab (a busy Pi kiosk, a throttled
+            # background tab). Relaying them all makes the picture drift
+            # further and further behind live, so binary media queues in a
+            # small buffer and the backlog is dropped when it fills: the
+            # video freezes for a moment and then catches up at the next
+            # keyframe, which is what a glance viewer wants. Text frames are
+            # signaling and are never dropped. The first binary frames carry
+            # the MSE init segment, so a handful are always let through.
+            queue: asyncio.Queue = asyncio.Queue(maxsize=48)
+            _DROP_MARK = object()
+
+            async def upstream_to_queue():
                 try:
                     async for message in upstream:
                         if isinstance(message, (bytes, bytearray)):
-                            await client_ws.send_bytes(bytes(message))
+                            if queue.full():
+                                try:
+                                    while True:
+                                        queue.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    pass
+                            await queue.put(bytes(message))
                         else:
-                            await client_ws.send_text(message)
+                            await queue.put(message)
                 except Exception:  # noqa: BLE001 - upstream close ends the relay
                     pass
+                await queue.put(_DROP_MARK)
 
-            await asyncio.gather(client_to_upstream(), upstream_to_client())
+            async def queue_to_client():
+                try:
+                    while True:
+                        message = await queue.get()
+                        if message is _DROP_MARK:
+                            break
+                        if isinstance(message, bytes):
+                            await client_ws.send_bytes(message)
+                        else:
+                            await client_ws.send_text(message)
+                except Exception:  # noqa: BLE001 - client close ends the relay
+                    pass
+
+            await asyncio.gather(client_to_upstream(), upstream_to_queue(),
+                                 queue_to_client())
     except Exception as exc:  # noqa: BLE001 - a proxy failure just closes the socket
         _log.debug("go2rtc ws proxy error: %s", exc)
     finally:

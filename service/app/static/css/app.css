@@ -352,21 +352,22 @@ html, body {
   grid-template-rows: repeat(var(--gc-b-rows, 2), 1fr);
 }
 
-/* An empty slot: tap to drop the selected camera. */
+/* An empty slot. Faint at rest; its gridlines firm up while a drag is live so
+   the drop targets read clearly. */
 .gc-b-cell {
   border: 1px dashed rgba(255, 255, 255, 0.14);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.02);
-  cursor: pointer;
   transition: background 0.1s ease, border-color 0.1s ease;
 }
-.gc-b-cell.gc-b-target {
-  border-color: var(--gc-accent);
-  background: rgba(127, 209, 255, 0.12);
+.gc-builder-preview.gc-b-live .gc-b-cell {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-/* A placed tile: shows the camera name and, on tap, its width and remove
-   controls. */
+/* A placed tile: drag the body to move, drag the corner handle to resize, tap
+   to reveal the remove control. touch-action:none so a press-drag on the Pi
+   touchscreen does not scroll the page instead. */
 .gc-b-tile {
   position: relative;
   border: 1px solid rgba(127, 209, 255, 0.5);
@@ -380,15 +381,24 @@ html, body {
   text-align: center;
   padding: 2px 4px;
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  transition: box-shadow 0.12s ease, transform 0.12s ease, opacity 0.12s ease;
 }
-.gc-b-tile.gc-b-selected {
-  border-color: var(--gc-accent);
-  background: rgba(127, 209, 255, 0.22);
+/* Lift the tile being dragged: a subtle shadow and scale, dimmed so the drop
+   highlight underneath is the focus. */
+.gc-b-tile.gc-b-lift {
+  opacity: 0.45;
+  transform: scale(1.03);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  z-index: 3;
+}
+.gc-b-tile-name {
+  pointer-events: none;
 }
 .gc-b-tile-ctrls {
   position: absolute;
-  inset: auto 2px 2px auto;
+  inset: 2px 2px auto auto;
   display: none;
   gap: 3px;
 }
@@ -396,14 +406,73 @@ html, body {
   display: flex;
 }
 .gc-b-tile-ctrls button {
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   line-height: 1;
-  padding: 2px 5px;
+  min-width: 22px;
+  padding: 3px 6px;
   border-radius: 3px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   cursor: pointer;
+}
+/* A generous corner target for resize (>=28px) so a fingertip lands on it. */
+.gc-b-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(127, 209, 255, 0.85) 50%);
+  border-bottom-right-radius: 4px;
+}
+
+/* The live drop preview: where the tile would land, green when valid, red when
+   it would overlap or fall out of bounds. Sits above the cells, below tiles. */
+.gc-b-drop {
+  z-index: 2;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.gc-b-drop-ok {
+  border: 2px solid rgba(120, 230, 150, 0.9);
+  background: rgba(120, 230, 150, 0.18);
+}
+.gc-b-drop-bad {
+  border: 2px solid rgba(255, 110, 110, 0.9);
+  background: rgba(255, 110, 110, 0.2);
+}
+
+/* A brief red shake when an invalid drop reverts. */
+@keyframes gc-b-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.gc-builder-preview.gc-b-shake {
+  animation: gc-b-shake 0.3s ease;
+  border-color: rgba(255, 110, 110, 0.7);
+}
+
+/* The floating ghost that follows the pointer while placing or moving. */
+.gc-b-ghost {
+  position: fixed;
+  z-index: 1080;
+  transform: translate(-50%, -50%);
+  padding: 3px 10px;
+  font: 0.75rem/1.3 system-ui, sans-serif;
+  color: #fff;
+  background: rgba(127, 209, 255, 0.9);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.gc-b-ghost.gc-b-ghost-out {
+  background: rgba(120, 120, 120, 0.85);
 }
 
 .gc-builder-chips {
@@ -418,15 +487,11 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.04);
   color: #e8e8e8;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   transition: background 0.1s ease, border-color 0.1s ease;
 }
-.gc-chip.gc-chip-selected {
-  border-color: var(--gc-accent);
-  background: rgba(127, 209, 255, 0.18);
-  color: #fff;
-}
+/* Already placed: dimmed, but still draggable to move its tile. */
 .gc-chip.gc-chip-placed {
   opacity: 0.45;
-  cursor: default;
 }

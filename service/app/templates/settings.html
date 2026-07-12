@@ -161,8 +161,9 @@
           </div>
 
           <!-- The builder: a proportional preview of the display, cols/rows
-               steppers, and the camera chips. Tap a chip then a cell to place
-               it; tap a placed tile for its width and remove controls. -->
+               steppers, and the camera chips. Drag a chip onto the grid to
+               place it, drag a tile to move it, drag a tile's corner to
+               resize, and tap a tile to reveal its remove button. -->
           <div id="gc-builder" class="gc-builder d-none mt-3">
             <div class="mb-2">
               <label class="form-label small">Name</label>
@@ -183,7 +184,7 @@
               </div>
             </div>
             <div class="gc-builder-preview" id="gc-builder-preview"></div>
-            <div class="small text-secondary mt-2" id="gc-builder-hint">Tap a camera, then tap a cell to place it.</div>
+            <div class="small text-secondary mt-2" id="gc-builder-hint">Drag a camera onto the grid to place it. Drag a tile to move it, or drag its corner to resize.</div>
             <div class="gc-builder-chips mt-1" id="gc-builder-chips"></div>
             <div class="small text-danger mt-1" id="gc-builder-msg"></div>
             <div class="mt-2 d-flex gap-2">

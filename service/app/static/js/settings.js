@@ -496,36 +496,223 @@ loadSystem();
     return occ;
   }
 
-  function free(col, row, w, occ) {
-    if (col < 0 || row < 0 || col + w > state.cols || row + 1 > state.rows) return false;
-    for (let cc = col; cc < col + w; cc++) if (occ.has(`${cc},${row}`)) return false;
+  // A w x h block at (col,row) is placeable when it stays in bounds and no cell
+  // it would cover is already taken. Mirrors validate_layout in layouts.py.
+  function fits(col, row, w, h, occ) {
+    if (col < 0 || row < 0 || col + w > state.cols || row + h > state.rows) return false;
+    for (let cc = col; cc < col + w; cc++) {
+      for (let rr = row; rr < row + h; rr++) if (occ.has(`${cc},${rr}`)) return false;
+    }
     return true;
   }
 
-  function placeChip(col, row) {
-    if (!state.chip) return;
-    if (state.cells.some((c) => c.camera_id === state.chip)) return;  // already placed
-    const occ = occupancy();
-    const cam = camById(state.chip);
-    // Ultrawide cameras default to double width when the room is there.
-    let w = 1;
-    if (cam && camAspect(cam) >= WIDE_ASPECT && free(col, row, 2, occ)) w = 2;
-    if (!free(col, row, w, occ)) return;
-    state.cells.push({ camera_id: state.chip, col, row, w, h: 1 });
-    state.chip = null;
-    renderBuilder();
+  function placeAt(camId, col, row, w) {
+    if (state.cells.some((c) => c.camera_id === camId)) return false;  // already placed
+    if (!fits(col, row, w, 1, occupancy())) return false;
+    state.cells.push({ camera_id: camId, col, row, w, h: 1 });
+    return true;
   }
 
-  function toggleWidth(cell) {
-    const occ = occupancy(cell);
-    if (cell.w === 1) { if (free(cell.col, cell.row, 2, occ)) cell.w = 2; }
-    else { cell.w = 1; }
-    renderBuilder();
+  // Drop at the first free slot: the accessible fallback for a plain tap on a
+  // tray chip (no drag). Ultrawide cameras still prefer a double-width slot.
+  function placeFirstFree(camId) {
+    const cam = camById(camId);
+    const occ = occupancy();
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        let w = 1;
+        if (cam && camAspect(cam) >= WIDE_ASPECT && fits(c, r, 2, 1, occ)) w = 2;
+        if (fits(c, r, w, 1, occ)) {
+          state.cells.push({ camera_id: camId, col: c, row: r, w, h: 1 });
+          renderBuilder();
+          return;
+        }
+      }
+    }
   }
 
   function removeCell(cell) {
     state.cells = state.cells.filter((c) => c !== cell);
     renderBuilder();
+  }
+
+  // ---- Pointer-driven direct manipulation ----------------------------------
+  // One engine for three gestures, all on Pointer Events so a mouse and the Pi
+  // touchscreen share a code path (HTML5 dragstart has no touch support):
+  //   place  - drag a tray chip onto the grid
+  //   move   - drag a placed tile (or its dimmed tray chip) to a new spot
+  //   resize - drag a tile's corner handle to change its span
+  // A small move threshold separates a drag from a tap; a tap on a tile just
+  // toggles its remove control.
+  const MOVE_THRESHOLD = 6;   // px before a press counts as a drag, not a tap
+  let drag = null;
+  let ghostEl = null;
+  let dropEl = null;
+
+  // Map a client point to a 0-based cell, or null when outside the preview.
+  // Gaps (4px) are folded into the even split; close enough for snapping.
+  function cellFromPoint(x, y, clamp) {
+    const rect = preview.getBoundingClientRect();
+    const pad = 4;
+    const iw = rect.width - pad * 2;
+    const ih = rect.height - pad * 2;
+    if (iw <= 0 || ih <= 0) return null;
+    const fx = (x - rect.left - pad) / iw;
+    const fy = (y - rect.top - pad) / ih;
+    if (!clamp && (fx < 0 || fx > 1 || fy < 0 || fy > 1)) return null;
+    let col = Math.floor(fx * state.cols);
+    let row = Math.floor(fy * state.rows);
+    col = Math.min(state.cols - 1, Math.max(0, col));
+    row = Math.min(state.rows - 1, Math.max(0, row));
+    return { col, row };
+  }
+
+  function showDrop(col, row, w, h, valid) {
+    if (!dropEl) {
+      dropEl = document.createElement('div');
+      dropEl.className = 'gc-b-drop';
+      preview.append(dropEl);
+    }
+    dropEl.style.gridArea = `${row + 1} / ${col + 1} / span ${h} / span ${w}`;
+    dropEl.classList.toggle('gc-b-drop-bad', !valid);
+    dropEl.classList.toggle('gc-b-drop-ok', valid);
+  }
+  function clearDrop() { if (dropEl) { dropEl.remove(); dropEl = null; } }
+
+  function makeGhost(label) {
+    ghostEl = document.createElement('div');
+    ghostEl.className = 'gc-b-ghost';
+    ghostEl.textContent = label;
+    document.body.append(ghostEl);
+  }
+  function positionGhost(x, y) {
+    if (ghostEl) { ghostEl.style.left = `${x}px`; ghostEl.style.top = `${y}px`; }
+  }
+
+  function flashInvalid() {
+    preview.classList.remove('gc-b-shake');
+    void preview.offsetWidth;   // reflow so the animation restarts every time
+    preview.classList.add('gc-b-shake');
+    setTimeout(() => preview.classList.remove('gc-b-shake'), 300);
+  }
+
+  function beginDrag(e, d) {
+    if (drag) return;   // ignore a second finger mid-drag
+    if (e.button != null && e.button > 0) return;   // primary button / touch only
+    drag = d;
+    drag.pointerId = e.pointerId;
+    drag.startX = e.clientX;
+    drag.startY = e.clientY;
+    drag.moved = false;
+    drag.dropTarget = null;
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
+    e.preventDefault();
+  }
+
+  function cleanupDrag() {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerCancel);
+    if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+    preview.classList.remove('gc-b-live');
+    drag = null;
+  }
+
+  function onPointerMove(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < MOVE_THRESHOLD) return;
+      drag.moved = true;
+      preview.classList.add('gc-b-live');
+      if (drag.kind !== 'resize') makeGhost(drag.label);
+      if (drag.tileEl) drag.tileEl.classList.add('gc-b-lift');
+    }
+    e.preventDefault();
+    if (drag.kind === 'resize') updateResize(e);
+    else updatePlaceMove(e);
+  }
+
+  function updatePlaceMove(e) {
+    positionGhost(e.clientX, e.clientY);
+    const hit = cellFromPoint(e.clientX, e.clientY, false);
+    if (!hit) {
+      clearDrop();
+      drag.dropTarget = null;
+      if (ghostEl) ghostEl.classList.add('gc-b-ghost-out');
+      return;
+    }
+    if (ghostEl) ghostEl.classList.remove('gc-b-ghost-out');
+
+    let w, h, occ, cam = null;
+    if (drag.kind === 'move') {
+      w = drag.cell.w; h = drag.cell.h;
+      occ = occupancy(drag.cell);   // the tile's own cells are free while it moves
+    } else {
+      w = 1; h = 1;
+      occ = occupancy();
+      cam = camById(drag.camId);
+    }
+    // Keep the span in bounds by pulling the top-left corner back from the edge.
+    let col = Math.max(0, Math.min(hit.col, state.cols - w));
+    let row = Math.max(0, Math.min(hit.row, state.rows - h));
+    // Ultrawide cameras land 2x1 when a double slot is free at the hovered spot.
+    if (drag.kind === 'place' && cam && camAspect(cam) >= WIDE_ASPECT && state.cols >= 2) {
+      const c2 = Math.max(0, Math.min(hit.col, state.cols - 2));
+      if (fits(c2, row, 2, 1, occ)) { w = 2; col = c2; }
+    }
+    const valid = fits(col, row, w, h, occ);
+    drag.dropTarget = { col, row, w, h, valid };
+    showDrop(col, row, w, h, valid);
+  }
+
+  function updateResize(e) {
+    const cell = drag.cell;
+    const t = cellFromPoint(e.clientX, e.clientY, true);
+    if (!t) return;
+    let w = Math.max(1, t.col - cell.col + 1);
+    let h = Math.max(1, t.row - cell.row + 1);
+    w = Math.min(w, state.cols - cell.col);
+    h = Math.min(h, state.rows - cell.row);
+    const occ = occupancy(cell);
+    const valid = fits(cell.col, cell.row, w, h, occ);
+    drag.dropTarget = { col: cell.col, row: cell.row, w, h, valid };
+    showDrop(cell.col, cell.row, w, h, valid);
+  }
+
+  function onPointerUp(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const d = drag;
+    if (!d.moved) {
+      cleanupDrag();
+      clearDrop();
+      if (d.tap) d.tap();
+      return;
+    }
+    const t = d.dropTarget;
+    let committed = false;
+    if (t && t.valid) {
+      if (d.kind === 'place') committed = placeAt(d.camId, t.col, t.row, t.w);
+      else if (d.kind === 'move') { d.cell.col = t.col; d.cell.row = t.row; committed = true; }
+      else if (d.kind === 'resize') { d.cell.w = t.w; d.cell.h = t.h; committed = true; }
+    }
+    cleanupDrag();
+    clearDrop();
+    if (!committed) flashInvalid();   // invalid drop reverts with a red shake
+    renderBuilder();
+  }
+
+  function onPointerCancel(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    cleanupDrag();
+    clearDrop();
+    renderBuilder();
+  }
+
+  function toggleControls(el) {
+    preview.querySelectorAll('.gc-b-tile.gc-b-open').forEach((t) => { if (t !== el) t.classList.remove('gc-b-open'); });
+    el.classList.toggle('gc-b-open');
   }
 
   // ---- Render --------------------------------------------------------------
@@ -536,37 +723,44 @@ loadSystem();
     preview.style.setProperty('--gc-b-cols', state.cols);
     preview.style.setProperty('--gc-b-rows', state.rows);
     preview.innerHTML = '';
+    dropEl = null;   // the old highlight lived under preview and was just cleared
 
     const occ = occupancy();
-    // Placed tiles.
+    // Placed tiles: drag the body to move, drag the corner handle to resize,
+    // tap to reveal the remove button.
     for (const cell of state.cells) {
       const cam = camById(cell.camera_id);
       const el = document.createElement('div');
       el.className = 'gc-b-tile';
+      el.dataset.cam = cell.camera_id;
       el.style.gridArea = `${cell.row + 1} / ${cell.col + 1} / span ${cell.h} / span ${cell.w}`;
-      el.innerHTML = `<span>${escapeHtml(cam ? cam.name : 'Camera')}</span>` +
+      el.innerHTML = `<span class="gc-b-tile-name">${escapeHtml(cam ? cam.name : 'Camera')}</span>` +
         `<span class="gc-b-tile-ctrls">` +
-        `<button type="button" data-act="width">${cell.w === 2 ? 'Narrow' : 'Wide'}</button>` +
-        `<button type="button" data-act="remove">&times;</button></span>`;
-      el.addEventListener('click', (e) => {
+        `<button type="button" data-act="remove" aria-label="Remove tile">&times;</button></span>` +
+        `<span class="gc-b-resize" data-act="resize" aria-label="Resize tile"></span>`;
+
+      el.addEventListener('pointerdown', (e) => {
         const act = e.target && e.target.dataset ? e.target.dataset.act : null;
-        if (act === 'width') { toggleWidth(cell); return; }
-        if (act === 'remove') { removeCell(cell); return; }
-        // Tap the tile body: reveal its controls (and close any other open one).
-        preview.querySelectorAll('.gc-b-tile.gc-b-open').forEach((t) => { if (t !== el) t.classList.remove('gc-b-open'); });
-        el.classList.toggle('gc-b-open');
+        if (act === 'remove') return;   // handled by the button's click
+        if (act === 'resize') { beginDrag(e, { kind: 'resize', cell, tileEl: el }); return; }
+        beginDrag(e, {
+          kind: 'move', cell, tileEl: el,
+          label: cam ? cam.name : 'Camera',
+          tap: () => toggleControls(el),
+        });
       });
+      const rm = el.querySelector('[data-act="remove"]');
+      rm.addEventListener('click', (ev) => { ev.stopPropagation(); removeCell(cell); });
       preview.append(el);
     }
-    // Empty cells fill every free slot so any spot is tappable.
+    // Empty cells fill every free slot so the grid reads as a grid and drop
+    // targets are obvious while a drag is in progress.
     for (let r = 0; r < state.rows; r++) {
       for (let c = 0; c < state.cols; c++) {
         if (occ.has(`${c},${r}`)) continue;
         const el = document.createElement('div');
         el.className = 'gc-b-cell';
         el.style.gridArea = `${r + 1} / ${c + 1} / span 1 / span 1`;
-        if (state.chip) el.classList.add('gc-b-target');
-        el.addEventListener('click', () => placeChip(c, r));
         preview.append(el);
       }
     }
@@ -585,15 +779,23 @@ loadSystem();
     for (const cam of enabled) {
       const placed = state.cells.some((c) => c.camera_id === cam.id);
       const chip = document.createElement('span');
-      chip.className = 'gc-chip' + (placed ? ' gc-chip-placed' : '') +
-        (state.chip === cam.id ? ' gc-chip-selected' : '');
+      chip.className = 'gc-chip' + (placed ? ' gc-chip-placed' : '');
       chip.textContent = cam.name;
-      if (!placed) {
-        chip.addEventListener('click', () => {
-          state.chip = state.chip === cam.id ? null : cam.id;
-          renderBuilder();
-        });
-      }
+      // An unplaced chip drags onto the grid (or taps to the first free slot).
+      // A placed chip is dimmed but still drags, which moves its existing tile.
+      chip.addEventListener('pointerdown', (e) => {
+        if (placed) {
+          const cell = state.cells.find((c) => c.camera_id === cam.id);
+          if (!cell) return;
+          beginDrag(e, {
+            kind: 'move', cell,
+            tileEl: preview.querySelector(`.gc-b-tile[data-cam="${cell.camera_id}"]`),
+            label: cam.name,
+          });
+        } else {
+          beginDrag(e, { kind: 'place', camId: cam.id, label: cam.name, tap: () => placeFirstFree(cam.id) });
+        }
+      });
       chipsBox.append(chip);
     }
   }

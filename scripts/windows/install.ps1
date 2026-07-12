@@ -131,7 +131,10 @@ function Stop-GlanceCamTasks {
     # go2rtc.exe is uniquely ours, so force-kill any straggler that the task
     # engine did not reap; the app's python is left to Stop-ScheduledTask so we
     # never touch an unrelated python.exe on the machine.
-    taskkill /IM go2rtc.exe /F 2>$null | Out-Null
+    # Redirect INSIDE cmd: a PowerShell-side 2>$null on a native command turns
+    # its stderr ("process not found") into a terminating NativeCommandError
+    # under ErrorActionPreference=Stop.
+    & "$env:SystemRoot\System32\cmd.exe" /c "taskkill /IM go2rtc.exe /F >nul 2>&1"
     # Give Windows a moment to release file handles before we overwrite the
     # binaries and site-packages.
     Start-Sleep -Seconds 3
@@ -169,7 +172,7 @@ function Invoke-Uninstall {
         }
     }
     foreach ($rule in @($FwApp, $FwWebrtcTcp, $FwWebrtcUdp)) {
-        netsh advfirewall firewall delete rule name="$rule" 2>$null | Out-Null
+        & "$env:SystemRoot\System32\cmd.exe" /c "netsh advfirewall firewall delete rule name=`"$rule`" >nul 2>&1"
     }
     Write-Ok 'Tasks and firewall rules removed'
 
@@ -268,7 +271,9 @@ function Install-Python {
     Set-Content -Path $pth.FullName -Value $new -Encoding ASCII
 
     # Bootstrap pip only when it is missing; the embeddable build has none.
-    & $PythonExe -m pip --version 2>$null | Out-Null
+    # Probe inside cmd so the "No module named pip" stderr cannot become a
+    # terminating NativeCommandError under ErrorActionPreference=Stop.
+    & "$env:SystemRoot\System32\cmd.exe" /c "`"$PythonExe`" -m pip --version >nul 2>&1"
     if ($LASTEXITCODE -ne 0) {
         Write-Step 'Bootstrapping pip'
         $getPip = Join-Path $PythonDir 'get-pip.py'
@@ -361,13 +366,15 @@ function Set-Firewall {
     Write-Step 'Opening firewall ports (9292 TCP, 8555 TCP+UDP)'
     # Delete-then-add is idempotent: a missing rule makes delete a harmless
     # no-op, and we never stack duplicate rules on re-runs.
-    netsh advfirewall firewall delete rule name="$FwApp" 2>$null | Out-Null
+    # Deletes redirect INSIDE cmd: a PowerShell-side 2>$null turns netsh's
+    # "no rules match" stderr into a terminating NativeCommandError.
+    & "$env:SystemRoot\System32\cmd.exe" /c "netsh advfirewall firewall delete rule name=`"$FwApp`" >nul 2>&1"
     netsh advfirewall firewall add rule name="$FwApp" dir=in action=allow protocol=TCP localport=9292 | Out-Null
 
-    netsh advfirewall firewall delete rule name="$FwWebrtcTcp" 2>$null | Out-Null
+    & "$env:SystemRoot\System32\cmd.exe" /c "netsh advfirewall firewall delete rule name=`"$FwWebrtcTcp`" >nul 2>&1"
     netsh advfirewall firewall add rule name="$FwWebrtcTcp" dir=in action=allow protocol=TCP localport=8555 | Out-Null
 
-    netsh advfirewall firewall delete rule name="$FwWebrtcUdp" 2>$null | Out-Null
+    & "$env:SystemRoot\System32\cmd.exe" /c "netsh advfirewall firewall delete rule name=`"$FwWebrtcUdp`" >nul 2>&1"
     netsh advfirewall firewall add rule name="$FwWebrtcUdp" dir=in action=allow protocol=UDP localport=8555 | Out-Null
     Write-Ok 'Firewall rules in place'
 }

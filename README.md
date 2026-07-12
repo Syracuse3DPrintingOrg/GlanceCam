@@ -80,15 +80,39 @@ sudo bash install.sh --rotation 90 --kiosk true
 See `install.sh --help` for the full list of flags and environment
 variables (`GLANCECAM_MODE`, `GLANCECAM_KIOSK`, `GLANCECAM_ROTATION`).
 
-## Windows and other desktops
+## Run GlanceCam on a Windows PC
 
-There is no Windows app to install. Any desktop is a browser client: open
-`http://YOUR-HOST:9292` in Chrome, Edge, or another Chromium-based browser and
-you have the grid. This works for any PC on your LAN, not just Windows; it is
-just a browser tab pointed at the server.
+A Windows PC can host GlanceCam on its own, no Raspberry Pi and no server. Open
+**Windows PowerShell as administrator** (right-click it and choose "Run as
+administrator") and run:
 
-To turn a Windows PC into a dedicated full-screen display, make a shortcut that
-launches the browser in app mode pointed at the server, for example:
+```powershell
+irm https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/scripts/windows/install.ps1 | iex
+```
+
+That one line is the whole install: it sets up a private Python runtime, the
+app, and its own go2rtc streaming engine, registers them as startup tasks so
+GlanceCam comes up with the PC, and serves the grid on port 9292, same as every
+other install. When it finishes, open `http://localhost:9292` and add your
+first camera. Everything lives under `C:\GlanceCam`; your cameras and settings
+sit in `C:\GlanceCam\data`. See
+[scripts/windows/README.md](scripts/windows/README.md) for the full details,
+including where the logs live and how to uninstall.
+
+### Prefer Docker Desktop
+
+If you already run Docker Desktop, the Docker quickstart above works on Windows
+too: download `docker-compose.prod.yml`, then `docker compose up -d`.
+
+### Just want a viewer on this PC
+
+You do not have to install anything to *watch* the cameras. If GlanceCam is
+already running somewhere on your network, any desktop is a browser client:
+open `http://YOUR-HOST:9292` in Chrome, Edge, or another Chromium-based browser
+and you have the grid. This works for any PC on your LAN, not just Windows.
+
+To turn that browser into a dedicated full-screen display, make a shortcut that
+launches it in app mode pointed at the server, for example:
 
 ```
 "C:\Program Files\Google\Chrome\Application\chrome.exe" --kiosk --app=http://YOUR-HOST:9292/?kiosk=1
@@ -123,6 +147,14 @@ touched:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/install.sh | sudo bash
+```
+
+**Windows native install:** re-run the same one-liner in an administrator
+PowerShell. It refreshes the app, dependencies, and go2rtc, then restarts the
+tasks; your cameras and settings (under `C:\GlanceCam\data`) are never touched:
+
+```powershell
+irm https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/scripts/windows/install.ps1 | iex
 ```
 
 ## License

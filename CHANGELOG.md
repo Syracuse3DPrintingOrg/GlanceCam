@@ -9,13 +9,22 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
 
 ### Added
 
+- **Run GlanceCam on a Windows PC.** A one-line installer sets up GlanceCam
+  natively on Windows 10 or 11, with no Docker, Raspberry Pi, or server
+  required. Run it in an administrator PowerShell and it installs a private
+  Python runtime, the app, and the bundled go2rtc engine under `C:\GlanceCam`,
+  registers them as startup tasks so the grid comes back with the PC, and
+  opens the firewall for you. Open `http://localhost:9292` when it finishes.
+  Re-running the same command updates the install in place and leaves your
+  cameras and settings alone.
 - **Grid layouts you design.** A new Grid section in settings lets you arrange
   tiles by hand: drag a camera onto the grid, drag tiles to move them, and
   drag a tile's corner to make it any size, on a mouse or the touchscreen.
-  Save as many named layouts as you like and switch the display between them. Automatic stays the default and now sizes and places tiles by
-  itself, giving ultrawide cameras (like the Reolink Duo) double width so they
-  are not squeezed into a single square. Editing a layout updates any open grid
-  right away.
+  Save as many named layouts as you like and switch the display between them.
+  Automatic stays the default and now sizes and places tiles by itself, giving
+  ultrawide cameras (like the Reolink Duo) double width so they are not
+  squeezed into a single square. Editing a layout updates any open grid right
+  away, including the device's own screen.
 - **First look at GlanceCam.** A minimalist, LAN-only camera viewer that
   shows all your IP cameras in one grid you can glance at. Add a camera by its
   RTSP or snapshot address, and it appears live on the grid. Click any tile to

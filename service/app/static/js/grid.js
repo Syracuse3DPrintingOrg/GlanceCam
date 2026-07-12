@@ -531,6 +531,11 @@ async function init() {
     if (e.key === 'gc-layout-changed') refresh(true);
   });
   window.addEventListener('focus', () => refresh(false));
+  // The storage event only reaches tabs in the SAME browser; the kiosk and
+  // other devices never see it (and the kiosk never refocuses), so also poll.
+  // refresh(false) compares a signature and rebuilds only on a real change,
+  // so the steady-state cost is one small GET every few seconds.
+  setInterval(() => refresh(false), 7000);
 
   await refresh(true);
   checkHealth();

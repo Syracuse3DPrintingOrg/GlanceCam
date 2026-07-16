@@ -7,6 +7,8 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-16
+
 ### Added
 
 - **Run GlanceCam on a Windows PC.** Download `GlanceCam-Setup.exe` from the

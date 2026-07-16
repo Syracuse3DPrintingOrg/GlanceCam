@@ -1,6 +1,7 @@
 """Camera CRUD API. Responses never carry credentials (public_view)."""
 from __future__ import annotations
 
+import asyncio
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
@@ -12,6 +13,14 @@ from ..services import go2rtc
 from ..services import netguard
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
+
+
+async def _backfill_soon(camera: dict) -> None:
+    """After a save, give go2rtc a moment to connect the stream, then learn and
+    store its codec/resolution. Fire-and-forget so the save response is instant;
+    any failure is swallowed by ``backfill_camera``."""
+    await asyncio.sleep(3)
+    await go2rtc.backfill_camera(camera)
 
 
 async def _payload(request: Request) -> dict:
@@ -87,6 +96,7 @@ async def create(request: Request):
     except store.CameraError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=400)
     await go2rtc.sync_camera(cam)
+    asyncio.create_task(_backfill_soon(cam))
     return store.public_view(cam)
 
 
@@ -100,6 +110,7 @@ async def edit(camera_id: str, request: Request):
     if cam is None:
         return JSONResponse({"detail": "No such camera."}, status_code=404)
     await go2rtc.sync_camera(cam)
+    asyncio.create_task(_backfill_soon(cam))
     return store.public_view(cam)
 
 

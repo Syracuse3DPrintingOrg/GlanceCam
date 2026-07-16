@@ -1,10 +1,27 @@
 <#
-GlanceCam Windows installer
-===========================
-Runs GlanceCam natively on a Windows 10/11 PC: no Docker, no Raspberry Pi, no
-server. It installs a private Python runtime, the app, and the bundled go2rtc
-streaming engine, then registers two Scheduled Tasks so GlanceCam starts with
-the PC and serves the camera grid on http://localhost:9292.
+GlanceCam Windows installer (headless / power-user path)
+========================================================
+The standard way to install GlanceCam on Windows is now the downloadable
+GlanceCam-Setup.exe from the latest GitHub release: it puts GlanceCam in your
+Start Menu and system tray, where you can start, stop, and remove it like any
+other app. Get it from
+https://github.com/Syracuse3DPrintingOrg/GlanceCam/releases and see
+scripts/windows/README.md.
+
+This script stays for headless boxes and power users who want a scripted,
+no-GUI install. It runs GlanceCam natively on a Windows 10/11 PC (no Docker, no
+Raspberry Pi, no server): it installs a private Python runtime, the app, and the
+bundled go2rtc streaming engine, then registers two Scheduled Tasks running as
+SYSTEM so GlanceCam starts with the PC and serves the camera grid on
+http://localhost:9292. There is no tray icon in this mode; it is invisible by
+design, managed through Task Scheduler.
+
+Pick ONE path, not both. The Setup.exe (a tray supervisor owning its child
+processes) and this script (two SYSTEM Scheduled Tasks) are different process
+models that both bind port 9292 and 8555; running them together means two
+GlanceCams fighting over the same ports. If you are moving from one to the
+other, uninstall the first (Setup.exe via Programs and Features, or this script
+with -Uninstall) before installing the second.
 
 The one-line install (run it in an elevated "Windows PowerShell" prompt,
 Run as administrator):

@@ -101,6 +101,35 @@ async def sync_all(cameras: list[dict]) -> None:
             await sync_camera(cam)
 
 
+async def backfill_camera(camera: dict) -> Optional[dict]:
+    """Probe a camera's streams and store any newly-learned codec/resolution.
+
+    Best effort: a stream that go2rtc cannot describe yet (not connected,
+    offline) probes as None and simply leaves the stored value alone. Imports
+    the camera store lazily to avoid an import cycle (the store never imports
+    go2rtc).
+    """
+    cid = camera.get("id")
+    if not cid:
+        return None
+    main_probe = await probe(f"{cid}_main") if (camera.get("main_url") or "").strip() else None
+    sub_probe = await probe(f"{cid}_sub") if (camera.get("sub_url") or "").strip() else None
+    if main_probe is None and sub_probe is None:
+        return None
+    from . import cameras as store
+    return store.backfill(cid, main_probe, sub_probe)
+
+
+async def backfill_all(cameras: list[dict]) -> None:
+    """Probe every enabled camera once and backfill codec/resolution (best effort)."""
+    for cam in cameras:
+        if cam.get("enabled", True):
+            try:
+                await backfill_camera(cam)
+            except Exception as exc:  # noqa: BLE001 - a failed probe must never break startup
+                _log.debug("go2rtc backfill failed for %s: %s", cam.get("id"), exc)
+
+
 def parse_probe(payload: Any) -> Optional[dict]:
     """Extract codec and resolution from a go2rtc stream info response.
 

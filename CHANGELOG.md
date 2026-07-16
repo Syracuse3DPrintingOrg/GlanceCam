@@ -9,14 +9,22 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
 
 ### Added
 
-- **Run GlanceCam on a Windows PC.** A one-line installer sets up GlanceCam
-  natively on Windows 10 or 11, with no Docker, Raspberry Pi, or server
-  required. Run it in an administrator PowerShell and it installs a private
-  Python runtime, the app, and the bundled go2rtc engine under `C:\GlanceCam`,
-  registers them as startup tasks so the grid comes back with the PC, and
-  opens the firewall for you. Open `http://localhost:9292` when it finishes.
-  Re-running the same command updates the install in place and leaves your
-  cameras and settings alone.
+- **Run GlanceCam on a Windows PC.** Download `GlanceCam-Setup.exe` from the
+  latest release and run it: GlanceCam installs like any other Windows app,
+  with a Start Menu entry, a system tray icon to open, stop, or start it (and
+  a "start when I sign in" toggle), and a normal uninstall in Programs and
+  Features. No Docker, Raspberry Pi, or server required, and your cameras and
+  settings survive updates and uninstalls. A scripted PowerShell install
+  remains for headless machines.
+- **An on-screen menu on the grid.** Tap the top-left corner of the screen
+  (or press m on a keyboard) for a translucent bar with the time, the date,
+  and one-tap switching between your saved grid layouts. It tucks itself away
+  after a few seconds.
+- **Cameras that only speak H265 always show a picture.** If a browser or
+  display cannot play a camera's full-quality H265 stream, full screen now
+  stays on the stream it can play and says so once, instead of going black.
+- **Works without internet.** The web interface no longer loads anything from
+  the internet, so a camera wall on an isolated network renders correctly.
 - **Grid layouts you design.** A new Grid section in settings lets you arrange
   tiles by hand: drag a camera onto the grid, drag tiles to move them, and
   drag a tile's corner to make it any size, on a mouse or the touchscreen.

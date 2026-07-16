@@ -1,8 +1,22 @@
 # GlanceCam on Windows (native)
 
-Run GlanceCam directly on a Windows PC. No Docker, no Raspberry Pi, no server:
-this installer puts a private Python runtime, the app, and the bundled go2rtc
-streaming engine on the machine and starts them with Windows.
+Run GlanceCam directly on a Windows PC. No Docker, no Raspberry Pi, no server.
+
+## The standard way: GlanceCam-Setup.exe
+
+Most people should use the installer. Download **GlanceCam-Setup.exe** from the
+[latest release](https://github.com/Syracuse3DPrintingOrg/GlanceCam/releases),
+run it, and GlanceCam appears in your Start Menu and system tray. Right-click
+the tray icon to open the camera grid, reach Settings, start or stop GlanceCam,
+or have it start when you sign in. To remove it, use Programs and Features like
+any other app; your cameras and settings are kept unless you delete
+`C:\ProgramData\GlanceCam` by hand.
+
+The rest of this page covers the **headless / power-user** PowerShell installer
+below (`install.ps1`), which runs GlanceCam as SYSTEM Scheduled Tasks with no
+tray icon. Use one path or the other, not both: they use different process
+models and both bind ports 9292 and 8555, so pick the tray installer or the
+script and uninstall the other first if you switch.
 
 ## Requirements
 

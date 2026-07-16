@@ -1,0 +1,4 @@
+# GlanceCam tray supervisor. Everything else it uses is in the standard
+# library. Installed into the private Python runtime alongside the app deps.
+pystray>=0.19
+pillow>=10.0

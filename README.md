@@ -82,22 +82,33 @@ variables (`GLANCECAM_MODE`, `GLANCECAM_KIOSK`, `GLANCECAM_ROTATION`).
 
 ## Run GlanceCam on a Windows PC
 
-A Windows PC can host GlanceCam on its own, no Raspberry Pi and no server. Open
-**Windows PowerShell as administrator** (right-click it and choose "Run as
-administrator") and run:
+A Windows PC can host GlanceCam on its own, no Raspberry Pi and no server.
+Download **GlanceCam-Setup.exe** from the
+[latest release](https://github.com/Syracuse3DPrintingOrg/GlanceCam/releases),
+run it, and GlanceCam appears in your Start Menu and system tray. Right-click
+the tray icon to open the camera grid, start or stop GlanceCam, or have it start
+when you sign in. When it finishes, open `http://localhost:9292` and add your
+first camera. To remove it later, use Programs and Features like any other app.
+
+Your cameras and settings live in `C:\ProgramData\GlanceCam` and are kept when
+you uninstall (delete that folder by hand if you want them gone). See
+[scripts/windows/README.md](scripts/windows/README.md) for more.
+
+### Headless install (PowerShell)
+
+For a server with no one signed in, or a scripted setup, there is a no-GUI
+installer that runs GlanceCam as background Scheduled Tasks instead of a tray
+app. Open **Windows PowerShell as administrator** (right-click it and choose
+"Run as administrator") and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/scripts/windows/install.ps1 | iex
 ```
 
-That one line is the whole install: it sets up a private Python runtime, the
-app, and its own go2rtc streaming engine, registers them as startup tasks so
-GlanceCam comes up with the PC, and serves the grid on port 9292, same as every
-other install. When it finishes, open `http://localhost:9292` and add your
-first camera. Everything lives under `C:\GlanceCam`; your cameras and settings
-sit in `C:\GlanceCam\data`. See
-[scripts/windows/README.md](scripts/windows/README.md) for the full details,
-including where the logs live and how to uninstall.
+It sets up the same private Python runtime, app, and go2rtc engine under
+`C:\GlanceCam` and serves the grid on port 9292, but with no tray icon. Use this
+or the Setup.exe, not both: they bind the same ports, so uninstall one before
+installing the other.
 
 ### Prefer Docker Desktop
 
@@ -149,9 +160,17 @@ touched:
 curl -fsSL https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/install.sh | sudo bash
 ```
 
-**Windows native install:** re-run the same one-liner in an administrator
-PowerShell. It refreshes the app, dependencies, and go2rtc, then restarts the
-tasks; your cameras and settings (under `C:\GlanceCam\data`) are never touched:
+**Windows (Setup.exe):** download the newer GlanceCam-Setup.exe from the
+[latest release](https://github.com/Syracuse3DPrintingOrg/GlanceCam/releases)
+and run it. It installs over the existing version in place and keeps your
+cameras and settings under `C:\ProgramData\GlanceCam`. The tray app does not
+update itself in this release, so check the releases page when you want the
+latest.
+
+**Windows (headless PowerShell install):** re-run the same one-liner in an
+administrator PowerShell. It refreshes the app, dependencies, and go2rtc, then
+restarts the tasks; your cameras and settings (under `C:\GlanceCam\data`) are
+never touched:
 
 ```powershell
 irm https://raw.githubusercontent.com/Syracuse3DPrintingOrg/GlanceCam/main/scripts/windows/install.ps1 | iex

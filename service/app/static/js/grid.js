@@ -208,6 +208,38 @@ function goPaused(entry) {
 
 let fullscreenEntry = null;
 
+// H265/HEVC decode support in this browser, resolved once per page. Many
+// desktop Chromium builds and most Raspberry Pi browsers cannot decode HEVC,
+// so a fullscreen upgrade to an H265 main stream would render a black tile;
+// we detect that up front and stay on the sub stream instead.
+let hevcSupport = null;
+function browserPlaysHevc() {
+  if (hevcSupport !== null) return hevcSupport;
+  let ok = false;
+  try {
+    const MS = window.MediaSource;
+    if (MS && typeof MS.isTypeSupported === 'function') {
+      ok = MS.isTypeSupported('video/mp4; codecs="hvc1.1.6.L153.B0"') ||
+           MS.isTypeSupported('video/mp4; codecs="hev1.1.6.L153.B0"');
+    }
+  } catch (e) { ok = false; }
+  hevcSupport = ok;
+  return ok;
+}
+
+function isHevc(codec) {
+  const c = (codec || '').toUpperCase();
+  return c === 'H265' || c === 'HEVC';
+}
+
+// Warn at most once per camera that its main stream cannot play here.
+const hevcWarned = new Set();
+function warnHevcOnce(cam) {
+  if (hevcWarned.has(cam.id)) return;
+  hevcWarned.add(cam.id);
+  toast(`${cam.name}: full quality is H265, which this browser cannot play; showing the sub stream.`);
+}
+
 function wantsMain(cam) {
   if (cam.fullscreen_uses_main === true) return true;
   if (cam.fullscreen_uses_main === false) return false;
@@ -224,11 +256,19 @@ function enterFullscreen(entry, entries) {
   // fullscreen tile.
   entry.el.classList.add('fullscreen');
   if (wantsMain(entry.cam) && entry.cam.sub_url) {
-    // Keep the sub stream on screen and warm the main stream behind it: the
-    // camera is only dialed now and the picture cannot start before its next
-    // keyframe, so a visible swap beats a black "loading" screen. If the main
-    // stream never renders (unsupported codec, offline), the sub simply stays.
-    startMainUpgrade(entry);
+    if (isHevc(entry.cam.main_codec) && !browserPlaysHevc()) {
+      // The main stream is known-H265 and this browser cannot decode it, so a
+      // main upgrade would just go black. Skip it entirely and stay on the sub
+      // stream that is already playing; tell the viewer why, once.
+      warnHevcOnce(entry.cam);
+    } else {
+      // Keep the sub stream on screen and warm the main stream behind it: the
+      // camera is only dialed now and the picture cannot start before its next
+      // keyframe, so a visible swap beats a black "loading" screen. If the main
+      // stream never renders (unknown codec that turns out unsupported,
+      // offline), the sub simply stays after the give-up timer.
+      startMainUpgrade(entry);
+    }
   } else if (wantsMain(entry.cam)) {
     detachStream(entry);
     entry.streamEl = makeStreamEl(mainStreamName(entry.cam));
@@ -531,6 +571,9 @@ async function init() {
     if (e.key === 'gc-layout-changed') refresh(true);
   });
   window.addEventListener('focus', () => refresh(false));
+  // The on-screen menu switches the active layout; re-render at once rather
+  // than waiting for the next poll below.
+  window.addEventListener('gc:layout-switched', () => refresh(true));
   // The storage event only reaches tabs in the SAME browser; the kiosk and
   // other devices never see it (and the kiosk never refocuses), so also poll.
   // refresh(false) compares a signature and rebuilds only on a real change,

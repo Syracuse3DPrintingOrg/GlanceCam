@@ -390,6 +390,13 @@ install_core_units() {
   # ($REPO_DIR/service), so ownership needs to cover the checkout too, not
   # just the venv/go2rtc/data directories.
   chown -R "$GLANCECAM_USER:$GLANCECAM_USER" "$INSTALL_DIR"
+  # GLANCECAM_SKIP_SERVICES=1 skips every systemctl call below (used by the
+  # CI smoke test, which installs into a plain container with no systemd as
+  # PID 1; daemon-reload/enable would abort the script under set -e there).
+  if [ "${GLANCECAM_SKIP_SERVICES:-0}" = "1" ]; then
+    warn "GLANCECAM_SKIP_SERVICES=1; leaving the units installed but not enabled/started"
+    return 0
+  fi
   systemctl daemon-reload
   systemctl enable glancecam-go2rtc.service glancecam.service
   # restart (not enable --now): on a re-run this is the update path, and

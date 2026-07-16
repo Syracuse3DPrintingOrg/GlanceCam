@@ -209,6 +209,117 @@ html, body {
   transform: translateX(-50%) translateY(0);
 }
 
+/* ---- On-screen menu -------------------------------------------------- */
+
+/* An always-present, invisible hot corner (top-left, 48x48 so a fingertip
+   lands on it) that opens the menu by touch alone. Sits above the grid tiles
+   but below a fullscreen tile (z 50), so fullscreen is exited before it. */
+.gc-menu-hot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 48px;
+  height: 48px;
+  z-index: 40;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The translucent menu bar across the top, revealed while the body carries
+   gc-menu-open. Slides in under 150ms; nothing else animates. */
+.gc-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 14px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.14s ease, opacity 0.14s ease;
+}
+.gc-body.gc-menu-open .gc-menu {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.gc-menu-clock {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.gc-menu-time {
+  font: 600 26px/1 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.gc-menu-date {
+  margin-top: 3px;
+  font: 12px/1.2 system-ui, sans-serif;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* The layout switcher takes the middle; it scrolls sideways on its own if the
+   names overflow so the bar never pushes the page wide. */
+.gc-menu-layouts {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px 0;
+}
+.gc-menu-pill {
+  flex: none;
+  font: 14px/1 system-ui, sans-serif;
+  padding: 8px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e8e8;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.gc-menu-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.gc-menu-pill-on {
+  border-color: var(--gc-accent);
+  background: rgba(127, 209, 255, 0.18);
+  color: #fff;
+}
+
+.gc-menu-close {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  font-size: 22px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.gc-menu-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* Kiosk hides the pointer only after an idle interval (set by kiosk.js). */
 .gc-body.cursor-hidden,
 .gc-body.cursor-hidden * {

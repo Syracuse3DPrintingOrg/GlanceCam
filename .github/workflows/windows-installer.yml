@@ -1,0 +1,171 @@
+name: Build Windows installer
+
+# Builds GlanceCam-Setup-<ver>.exe, the standard Windows installer: a private
+# Python runtime with the app and tray deps preinstalled, go2rtc, the tray
+# supervisor, and an Inno Setup wrapper. Runs on a manual dispatch, on a v* tag,
+# and when a release is published (which also attaches the .exe to that
+# release). The version comes from the tag when present, otherwise from
+# APP_VERSION in service/app/config.py, so a plain dispatch still names the
+# artifact correctly.
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Pinned deliberately, in step with install.sh and scripts/windows/install.ps1:
+# go2rtc renames its release assets between major versions, so bump this on
+# purpose (and re-check the asset name below) rather than tracking latest. The
+# embeddable Python is any 3.12 patch; bump freely.
+env:
+  GO2RTC_VERSION: "v1.9.14"
+  PYTHON_VERSION: "3.12.10"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # attach the installer to a published release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $src = Get-Content service/app/config.py -Raw
+          $m = [regex]::Match($src, 'APP_VERSION\s*=\s*"([^"]+)"')
+          if (-not $m.Success) { throw "Could not find APP_VERSION in service/app/config.py" }
+          $ver = $m.Groups[1].Value
+          # A v* tag wins over the source version, so a tagged release names the
+          # installer after the tag.
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $ver = $env:GITHUB_REF -replace '^refs/tags/v',''
+          }
+          Write-Host "Building GlanceCam $ver"
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Stage payload tree
+        id: stage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          $staging = Join-Path $PWD 'staging'
+          foreach ($d in 'app','python','go2rtc','tray') {
+            New-Item -ItemType Directory -Force -Path (Join-Path $staging $d) | Out-Null
+          }
+
+          # --- app: the service checkout (tray cwd is app\service) ---
+          Copy-Item -Path 'service' -Destination (Join-Path $staging 'app\service') -Recurse -Force
+
+          # --- tray: the supervisor and its requirements ---
+          Copy-Item -Path 'windows\tray\*' -Destination (Join-Path $staging 'tray') -Recurse -Force
+
+          # --- python: embeddable runtime with site-packages enabled ---
+          $pydir = Join-Path $staging 'python'
+          $pyzip = Join-Path $env:RUNNER_TEMP 'python-embed.zip'
+          $pyurl = "https://www.python.org/ftp/python/$($env:PYTHON_VERSION)/python-$($env:PYTHON_VERSION)-embed-amd64.zip"
+          Invoke-WebRequest -Uri $pyurl -OutFile $pyzip -UseBasicParsing
+          Expand-Archive -Path $pyzip -DestinationPath $pydir -Force
+          # Turn on site imports and the site-packages dir in the ._pth file so
+          # pip and installed packages are importable (the embeddable build
+          # ships both disabled).
+          $pth = Get-ChildItem -Path $pydir -Filter '*._pth' | Select-Object -First 1
+          $lines = Get-Content $pth.FullName | ForEach-Object {
+            if ($_ -match '^\s*#\s*import\s+site\s*$') { 'import site' } else { $_ }
+          }
+          if ($lines -notcontains 'import site')       { $lines += 'import site' }
+          if ($lines -notcontains 'Lib\site-packages') { $lines += 'Lib\site-packages' }
+          Set-Content -Path $pth.FullName -Value $lines -Encoding ascii
+
+          $py = Join-Path $pydir 'python.exe'
+          $getpip = Join-Path $env:RUNNER_TEMP 'get-pip.py'
+          Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $getpip -UseBasicParsing
+          & $py $getpip --no-warn-script-location
+          if ($LASTEXITCODE -ne 0) { throw "get-pip failed" }
+          & $py -m pip install --upgrade pip --no-warn-script-location
+          & $py -m pip install --no-warn-script-location -r service/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "app requirements install failed" }
+          & $py -m pip install --no-warn-script-location -r windows/tray/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "tray requirements install failed" }
+
+          # --- Start Menu icon: rendered from the tray glyph, no committed asset ---
+          $ico = Join-Path $staging 'tray\glancecam.ico'
+          & $py -c "import sys; sys.path.insert(0, r'windows/tray'); import glancecam_tray as g; g.make_icon('running').resize((256,256)).save(r'$ico', format='ICO', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          if ($LASTEXITCODE -ne 0) { throw "icon render failed" }
+
+          # --- go2rtc: pinned win64 build + the loopback-API config ---
+          $g2dir = Join-Path $staging 'go2rtc'
+          $g2zip = Join-Path $env:RUNNER_TEMP 'go2rtc.zip'
+          $g2url = "https://github.com/AlexxIT/go2rtc/releases/download/$($env:GO2RTC_VERSION)/go2rtc_win64.zip"
+          Invoke-WebRequest -Uri $g2url -OutFile $g2zip -UseBasicParsing
+          $g2tmp = Join-Path $env:RUNNER_TEMP 'go2rtc-extract'
+          Expand-Archive -Path $g2zip -DestinationPath $g2tmp -Force
+          $exe = Get-ChildItem -Path $g2tmp -Filter 'go2rtc.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "go2rtc.exe not found in the downloaded archive" }
+          Copy-Item -Path $exe.FullName -Destination (Join-Path $g2dir 'go2rtc.exe') -Force
+          # Config adapted from docker/go2rtc/go2rtc.yaml: REST API on loopback
+          # (only the app talks to it; it reverse-proxies stream traffic), WebRTC
+          # on 8555 open so LAN browsers can play. GlanceCam owns the stream table
+          # at runtime through the REST API, so no streams are listed.
+          $yaml = @"
+          # Managed by the GlanceCam Windows installer. GlanceCam adds and removes
+          # streams through go2rtc's REST API at runtime, so none are listed here.
+          api:
+            listen: "127.0.0.1:1984"
+          webrtc:
+            listen: ":8555"
+          rtsp:
+            listen: ":8554"
+          log:
+            level: info
+          "@
+          Set-Content -Path (Join-Path $g2dir 'go2rtc.yaml') -Value $yaml -Encoding ascii
+
+          "staging=$staging" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          $out = Join-Path $PWD 'dist'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & $iscc `
+            "/DAppVersion=$($env:GC_VERSION)" `
+            "/DStagingDir=$($env:GC_STAGING)" `
+            "/O$out" `
+            installer\windows\glancecam.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed with exit code $LASTEXITCODE" }
+          $exe = Join-Path $out "GlanceCam-Setup-$($env:GC_VERSION).exe"
+          if (-not (Test-Path $exe)) { throw "expected installer not produced: $exe" }
+          "exe=$exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        env:
+          GC_VERSION: ${{ steps.ver.outputs.version }}
+          GC_STAGING: ${{ steps.stage.outputs.staging }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: GlanceCam-Setup-${{ steps.ver.outputs.version }}
+          path: ${{ steps.build.outputs.exe }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GC_EXE: ${{ steps.build.outputs.exe }}
+        run: |
+          gh release upload "$($env:GITHUB_REF_NAME)" "$($env:GC_EXE)" --clobber

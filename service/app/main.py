@@ -38,6 +38,13 @@ async def _lifespan(app: FastAPI):
             from .services import cameras as store
             from .services import go2rtc
             await go2rtc.sync_all(store.list_cameras())
+            # Then lazily learn each stream's codec/resolution and store it, so
+            # the grid knows (for example) which cameras are H265 before anyone
+            # taps them to fullscreen. Give go2rtc a moment to connect the
+            # streams it was just handed; a stream it cannot describe yet simply
+            # keeps its stored value.
+            await asyncio.sleep(5)
+            await go2rtc.backfill_all(store.list_cameras())
         except Exception as exc:  # noqa: BLE001 - startup must survive a go2rtc miss
             _log.debug("initial go2rtc sync skipped: %s", exc)
 

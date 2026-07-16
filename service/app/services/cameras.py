@@ -27,6 +27,7 @@ _ALLOWED_FIELDS = {
     "main_url", "sub_url", "snapshot_url",
     "username", "password", "ha_entity",
     "main_resolution", "sub_resolution",
+    "main_codec", "sub_codec",
     "fullscreen_uses_main", "allow_self_signed",
 }
 
@@ -92,6 +93,8 @@ def _normalize_new(data: dict) -> dict:
     cam.setdefault("ha_entity", None)
     cam.setdefault("main_resolution", None)
     cam.setdefault("sub_resolution", None)
+    cam.setdefault("main_codec", None)
+    cam.setdefault("sub_codec", None)
     cam.setdefault("fullscreen_uses_main", settings.fullscreen_uses_main)
     return cam
 
@@ -162,6 +165,54 @@ def update(camera_id: str, data: dict) -> Optional[dict]:
                     patch.pop(field)  # keep the stored secret
             merged = {**c, **patch}
             _validate(merged)
+            cams[i] = merged
+            _write_all(cams)
+            return merged
+        return None
+
+
+def probe_patch(camera: dict, main_probe: Optional[dict],
+                sub_probe: Optional[dict]) -> dict:
+    """The resolution/codec fields a go2rtc probe would backfill, without writing.
+
+    Reads each stream's probe (``{"codec": str|None, "resolution": [w, h]|None}``
+    from ``go2rtc.parse_probe``) and returns only the keys whose value is newly
+    known and differs from what the camera already holds. An empty dict means
+    nothing changed. Pure, so the merge rules are unit tested with fixture probe
+    dicts and no go2rtc. A probe reading ``None`` (stream offline, unparseable)
+    never clears a value the camera already learned.
+    """
+    patch: dict = {}
+    for prefix, probe in (("main", main_probe), ("sub", sub_probe)):
+        if not isinstance(probe, dict):
+            continue
+        res = probe.get("resolution")
+        if (isinstance(res, list) and len(res) == 2
+                and camera.get(f"{prefix}_resolution") != res):
+            patch[f"{prefix}_resolution"] = res
+        codec = probe.get("codec")
+        if codec and camera.get(f"{prefix}_codec") != codec:
+            patch[f"{prefix}_codec"] = codec
+    return patch
+
+
+def backfill(camera_id: str, main_probe: Optional[dict],
+             sub_probe: Optional[dict]) -> Optional[dict]:
+    """Store any newly-probed resolution/codec for a camera and persist.
+
+    Writes only when ``probe_patch`` finds a change, so a repeated probe of an
+    already-known camera does not churn the store. Returns the camera (updated
+    or unchanged), or None if the id is unknown.
+    """
+    with _lock:
+        cams = _read_all()
+        for i, c in enumerate(cams):
+            if c.get("id") != camera_id:
+                continue
+            patch = probe_patch(c, main_probe, sub_probe)
+            if not patch:
+                return c
+            merged = {**c, **patch}
             cams[i] = merged
             _write_all(cams)
             return merged

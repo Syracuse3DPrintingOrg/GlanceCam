@@ -110,7 +110,7 @@ def _probe_http(ip: str, port: int, scheme: str, timeout: float,
     is re-probed explicitly by the user later, never trusted blindly here.
     """
     def _default_fetch(url: str):
-        return httpx.get(url, timeout=timeout, follow_redirects=True)
+        return httpx.get(url, timeout=timeout, follow_redirects=False)
     fetch = fetch or _default_fetch
     default_port = 80 if scheme == "http" else 443
     base = f"{scheme}://{ip}" if port == default_port else f"{scheme}://{ip}:{port}"
@@ -228,7 +228,7 @@ def probe_with_auth(host: str, username: str = "", password: str = "",
 
     def _auth_fetch(auth_obj):
         def _f(url: str):
-            return httpx.get(url, timeout=timeout, follow_redirects=True,
+            return httpx.get(url, timeout=timeout, follow_redirects=False,
                              auth=auth_obj)
         return _f
 

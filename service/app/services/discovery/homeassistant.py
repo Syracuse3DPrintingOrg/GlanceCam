@@ -67,7 +67,7 @@ def list_cameras(base_url: str, token: str, timeout: float = 8.0) -> dict:
     if netguard.is_blocked_fetch_host(base, fail_closed=True):
         return {"ok": False, "error": netguard.BLOCKED_HOST_MESSAGE}
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
             resp = client.get(f"{base}/api/states",
                               headers={"Authorization": f"Bearer {token}"})
     except httpx.HTTPError as exc:

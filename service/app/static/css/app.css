@@ -606,3 +606,12 @@ html, body {
 .gc-chip.gc-chip-placed {
   opacity: 0.45;
 }
+
+/* A brief inline notice in the menu bar (e.g. a layout switch that needs the
+   settings password on a remote browser). */
+.gc-menu-note {
+  flex: none;
+  max-width: 40%;
+  font: 12px/1.3 system-ui, sans-serif;
+  color: #ffd9a8;
+}

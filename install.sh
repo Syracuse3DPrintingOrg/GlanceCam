@@ -261,6 +261,13 @@ fetch_via_tarball() {
 
 fetch_repo() {
   mkdir -p "$INSTALL_DIR"
+  # A pre-populated checkout (the CI smoke test copies the repo into place and
+  # sets this) skips the network fetch entirely, so the installer runs against
+  # exactly the code under test rather than a branch that only exists locally.
+  if [ -n "${GLANCECAM_SKIP_FETCH:-}" ] && [ -e "$REPO_DIR/service/app/main.py" ]; then
+    ok "Using the checkout already at $REPO_DIR (fetch skipped)"
+    return 0
+  fi
   if fetch_via_git; then
     ok "Repo ready at $REPO_DIR"
     return 0

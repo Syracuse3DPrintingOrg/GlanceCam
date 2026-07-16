@@ -211,7 +211,7 @@ async def _preview_image(url: str, username: str, password: str) -> Response:
         attempts.append(httpx.BasicAuth(username, password))
     try:
         async with httpx.AsyncClient(timeout=_PREVIEW_TIMEOUT,
-                                     follow_redirects=True) as client:
+                                     follow_redirects=False) as client:
             for auth in attempts:
                 try:
                     resp = await client.get(url, auth=auth)

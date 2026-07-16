@@ -167,7 +167,7 @@ def _login_and_read(base: str, username: str, password: str,
     """
     api = f"{base}/cgi-bin/api.cgi"
     with httpx.Client(timeout=timeout, verify=verify,
-                      follow_redirects=True) as client:
+                      follow_redirects=False) as client:
         login = client.post(api, params={"cmd": "Login"}, json=[{
             "cmd": "Login",
             "param": {"User": {"userName": username, "password": password}},

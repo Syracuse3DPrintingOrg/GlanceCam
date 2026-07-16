@@ -208,9 +208,20 @@ async def go2rtc_ws(client_ws: WebSocket):
             pass
 
 
-@app.api_route("/go2rtc/{path:path}", methods=["GET", "POST"])
+# Only the media endpoints a browser tile needs are proxied. go2rtc's control
+# API (api/config, api/streams, ...) lists every stream's source URL WITH the
+# camera's RTSP credentials embedded, so exposing it here would hand any LAN
+# client every camera password and hollow out the settings password. Live
+# playback negotiates over the separate /go2rtc/api/ws handler; this HTTP path
+# is only the JPEG/MJPEG fallback. Keep this an allowlist, never a denylist.
+_GO2RTC_HTTP_ALLOWED = frozenset({"api/frame.jpeg", "api/stream.mjpeg"})
+
+
+@app.api_route("/go2rtc/{path:path}", methods=["GET"])
 async def go2rtc_http(path: str, request: Request):
-    """Plain HTTP proxy for go2rtc (frames, MJPEG, the API and web assets)."""
+    """Proxy the go2rtc JPEG/MJPEG frame endpoints only (see the allowlist)."""
+    if path not in _GO2RTC_HTTP_ALLOWED:
+        return JSONResponse({"detail": "Not found."}, status_code=404)
     target = f"{settings.go2rtc_url.rstrip('/')}/{path}"
     if request.url.query:
         target += "?" + request.url.query

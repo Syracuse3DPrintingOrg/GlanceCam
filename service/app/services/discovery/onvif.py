@@ -314,7 +314,7 @@ def get_streams(xaddr: str, username: str = "", password: str = "",
         return {"ok": False, "error": "No device service address."}
     headers = {"Content-Type": "application/soap+xml; charset=utf-8"}
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
             pr = client.post(xaddr, content=build_get_profiles(username, password),
                              headers=headers)
             if pr.status_code in (401, 403):

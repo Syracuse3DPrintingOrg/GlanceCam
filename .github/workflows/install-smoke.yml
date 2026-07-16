@@ -44,13 +44,12 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
 
-          echo "==> Installing git so install.sh can clone the mounted checkout"
-          apt-get update -y
-          apt-get install -y --no-install-recommends git ca-certificates
-          # The checkout was made by the runner user; git refuses to touch a
-          # repo it doesn't own unless told it's safe. This container reads
-          # it as root.
-          git config --global --add safe.directory /repo
+          echo "==> Seeding the app tree from the mounted checkout"
+          # The mount is read-only and only exists for this run, so copy the
+          # code under test into place and tell install.sh to skip its network
+          # fetch. This exercises the exact commit, not a branch on GitHub.
+          mkdir -p /opt/glancecam/app
+          cp -a /repo/. /opt/glancecam/app/
 
           echo "==> Running install.sh (native mode, services and kiosk skipped)"
           export DEBIAN_FRONTEND=noninteractive
@@ -59,9 +58,8 @@ jobs:
           export FORCE_DISPLAY=0
           export GLANCECAM_KIOSK=false
           export GLANCECAM_SKIP_SERVICES=1
-          export REPO_URL=/repo
-          export REPO_BRANCH=ci-smoke
-          bash /repo/install.sh
+          export GLANCECAM_SKIP_FETCH=1
+          bash /opt/glancecam/app/install.sh
 
           echo "==> Verifying the repo was fetched from the mounted checkout"
           test -f /opt/glancecam/app/service/app/main.py

@@ -43,8 +43,18 @@
   closeBtn.setAttribute('aria-label', 'Close menu');
   closeBtn.textContent = '×';
 
-  bar.append(clockWrap, pills, closeBtn);
+  const noteEl = document.createElement('div');
+  noteEl.className = 'gc-menu-note';
+
+  bar.append(clockWrap, pills, noteEl, closeBtn);
   body.append(hot, bar);
+
+  let noteTimer = 0;
+  function note(msg) {
+    noteEl.textContent = msg || '';
+    clearTimeout(noteTimer);
+    if (msg) noteTimer = setTimeout(() => { noteEl.textContent = ''; }, 5000);
+  }
 
   // ---- Clock: update text only, never rebuild the bar ---------------------
 
@@ -90,15 +100,26 @@
 
   async function switchLayout(id) {
     try {
-      await fetch('/api/layouts/active', {
+      const resp = await fetch('/api/layouts/active', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
+      if (!resp.ok) {
+        // A remote browser needs the settings password to change layouts (the
+        // device's own screen is always trusted). Say so instead of looking
+        // like the tap did nothing.
+        note(resp.status === 401
+          ? 'Switching layouts needs the settings password. Open Settings to sign in.'
+          : 'Could not switch the layout.');
+        return;
+      }
       // Ask the grid to re-render now; its poll would catch up regardless.
       window.dispatchEvent(new CustomEvent('gc:layout-switched'));
-    } catch (e) { /* the grid poll still picks the change up */ }
-    close();
+      close();
+    } catch (e) {
+      note('Could not reach GlanceCam to switch the layout.');
+    }
   }
 
   // ---- Open / close -------------------------------------------------------

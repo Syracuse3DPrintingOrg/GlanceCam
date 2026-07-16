@@ -68,7 +68,7 @@ async def snapshot(camera_id: str):
         if not netguard.guard_url(snap_url, fail_closed=False):
             try:
                 async with httpx.AsyncClient(timeout=8.0, verify=verify,
-                                             follow_redirects=True) as client:
+                                             follow_redirects=False) as client:
                     resp = await client.get(snap_url, auth=_basic_auth(camera))
                     if resp.status_code == 200 and resp.content:
                         media = resp.headers.get("content-type", "image/jpeg")
@@ -120,7 +120,7 @@ async def diag(camera_id: str):
         try:
             async with httpx.AsyncClient(
                     timeout=8.0, verify=not camera.get("allow_self_signed", False),
-                    follow_redirects=True) as client:
+                    follow_redirects=False) as client:
                 resp = await client.get(snap_url, auth=_basic_auth(camera))
                 snapshot_status = resp.status_code
                 snapshot_ok = resp.status_code == 200 and bool(resp.content)

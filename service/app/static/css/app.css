@@ -127,6 +127,41 @@ html, body {
   z-index: 50;
 }
 
+/* Fullscreen audio toggle. Added to the tile only while it is fullscreen, so it
+   never shows on the grid. Bottom-right, quiet like the gear, and above the
+   video layers (main-active sits at z-index 2). 44px so a fingertip lands. */
+.gc-audio-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.gc-audio-btn:hover,
+.gc-audio-btn:focus {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+
+/* In fullscreen the audio toggle owns the bottom-right corner; drop the gear so
+   the two never stack. The OS fullscreen path hides the gear already (it is not
+   a descendant of the fullscreened tile); this covers the CSS-only fallback. */
+body:has(.gc-tile.fullscreen) .gc-gear {
+  display: none;
+}
+
 .gc-empty {
   grid-column: 1 / -1;
   grid-row: 1 / -1;

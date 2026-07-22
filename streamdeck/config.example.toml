@@ -1,0 +1,51 @@
+# GlanceCam Stream Deck controller configuration.
+# Copy to config.toml (or install to /etc/glancecam/streamdeck.toml) and edit.
+# Every value has a default, so a deck attached to a GlanceCam appliance works
+# with this file untouched as long as the app is on localhost.
+
+# Where the GlanceCam app lives. On the appliance this is the local app; a
+# thin-client deck points at the server on your LAN, for example
+# "http://192.168.1.50:9292".
+base_url = "http://127.0.0.1:9292"
+
+# Optional API key. GlanceCam's grid and snapshot proxy are open on the LAN, so
+# this is only needed when a reverse proxy in front of the app requires one.
+# Prefer the GLANCECAM_STREAMDECK_API_KEY environment variable so it stays out of
+# this file (the systemd unit reads it from streamdeck.env).
+api_key = ""
+
+# Deck brightness on start, 5 to 100.
+brightness = 60
+
+# How often, in seconds, each key's thumbnail refreshes. About one second keeps
+# the wall lively without hammering the cameras.
+poll_seconds = 1.0
+
+# How often, in seconds, to re-read the camera list so added, removed, or
+# reordered cameras land on the keys without a restart.
+camera_list_refresh_seconds = 30
+
+# Clockwise rotation of the rendered key faces, in degrees. Only 0, 90, 180, and
+# 270 are accepted. Use 180 if the deck is mounted upside down; presses are
+# remapped to match. The kiosk display rotation is a separate OS-level setting.
+rotation = 0
+
+# Per-key camera assignment, in reading order (left to right, top to bottom).
+# Each entry is a camera id (as shown by GET /api/cameras), or an empty string
+# for a blank key. Leave the list empty to auto-fill from the live camera list
+# in its saved order, which is what the drag-and-drop editor writes when you have
+# not customised the layout. Example with three cameras and a gap:
+#   keys = ["cam_1a2b3c", "cam_4d5e6f", "", "cam_7g8h9i"]
+keys = []
+
+# Where to write the press-selection signal file. The kiosk can read this to
+# learn which camera the deck last chose. selection_path overrides the default
+# of <data_dir>/deck-selection.json.
+data_dir = "/var/lib/glancecam"
+selection_path = ""
+
+# Key face colours. Tune these to match your kiosk.
+background_color = "#101216"  # blank keys and the letterbox bars
+label_color = "#f4f4f5"       # the camera name text
+offline_color = "#2a2d33"     # a key whose camera has no frame yet
+accent_color = "#3b82f6"      # the "More" page key when cameras overflow the deck

@@ -7,6 +7,31 @@ pre-1.0, so it stays in the `0.x` range until the first public release.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-16
+
+### Added
+
+- **Control the wall with a Stream Deck.** Plug an Elgato Stream Deck into a
+  Raspberry Pi and each key becomes a live camera thumbnail, refreshing about
+  once a second. Press a key and that camera fills the screen; press another to
+  switch. More cameras than keys paginate with a "More" key. The Pi installer
+  sets it up automatically when a deck is plugged in.
+- **Cameras that pop up when something happens.** A Home Assistant automation
+  (or anything on your network) can tell GlanceCam to bring a camera full
+  screen for a few seconds, so a person at the door or motion in the yard puts
+  the right camera on the wall on its own. The display returns to the grid
+  afterward.
+- **Sound in full screen.** When a camera is full screen, a speaker button in
+  the corner unmutes its audio. The grid itself stays silent, and full screen
+  starts muted until you ask for sound.
+- **A friendly name on the network.** A new Raspberry Pi install reaches the
+  web page at `http://glance.local:9292`, and if you set up more than one, each
+  takes the next free name (`glance-2`, `glance-3`, and so on) so they never
+  collide.
+- **Touchscreens land where you tap.** The Pi installer now calibrates a
+  connected touchscreen to the display's rotation, so taps line up with the
+  tiles on a rotated panel.
+
 ## [0.1.0] - 2026-07-16
 
 ### Added

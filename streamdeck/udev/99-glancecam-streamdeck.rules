@@ -1,0 +1,12 @@
+# Allow non-root access to Elgato Stream Deck devices for the GlanceCam
+# controller. Install:
+#   sudo cp streamdeck/udev/99-glancecam-streamdeck.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# The user running the controller must be in the plugdev group:
+#   sudo usermod -aG plugdev <user>   (then log out and back in)
+#
+# 0fd9 is Elgato Systems. These cover Mini, Original, MK.2, XL, and the embedded
+# Stream Deck Module variants. TAG+="uaccess" also grants the logged-in local
+# user access through systemd-logind, alongside the plugdev group fallback.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0fd9", MODE="0660", TAG+="uaccess", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0fd9", MODE="0660", TAG+="uaccess", GROUP="plugdev"

@@ -25,7 +25,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Single source of truth for the app version (shown in the UI and reported by
 # /health and /api/system). Bump on each release.
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 # Display name. The internal identifier stays "glancecam" everywhere else.
 APP_NAME = "GlanceCam"

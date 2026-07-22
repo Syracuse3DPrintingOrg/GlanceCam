@@ -207,6 +207,72 @@ function goPaused(entry) {
 // ---- Fullscreen ------------------------------------------------------------
 
 let fullscreenEntry = null;
+let popupTimer = 0;      // auto-exit for an HA-driven camera pop-up
+
+// ---- Fullscreen audio ------------------------------------------------------
+// Grid tiles are always muted (the vendored player mutes to satisfy autoplay,
+// and nothing here ever unmutes a grid tile). Only the fullscreen tile can play
+// sound, and only after an explicit tap on the speaker button, so a wall
+// display never surprises the room. Every fullscreen starts muted; exit remutes.
+
+let audioBtn = null;
+let fsAudioMuted = true;
+
+const SPK_ON = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+  '<path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3z"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+  'd="M16 8.5a4 4 0 0 1 0 7M18.7 6a7 7 0 0 1 0 12"/></svg>';
+const SPK_OFF = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">' +
+  '<path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3z"/>' +
+  '<path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" ' +
+  'd="M16 9.5l5 5M21 9.5l-5 5"/></svg>';
+
+// The underlying <video> the viewer is actually looking at: the revealed main
+// upgrade when it is active, otherwise the tile's own stream element.
+function topFsVideo(entry) {
+  const el = (entry && entry._mainEl && entry._mainEl.classList.contains('gc-main-active'))
+    ? entry._mainEl : (entry && entry.streamEl);
+  return el && el.video ? el.video : null;
+}
+function tileVideos(entry) {
+  return entry ? Array.from(entry.el.querySelectorAll('video')) : [];
+}
+// Reflect fsAudioMuted onto the tile: when unmuted only the top video carries
+// sound (the sub playing underneath a main upgrade stays muted so it is not
+// heard twice); when muted every video in the tile is silent.
+function applyFsAudio(entry) {
+  const top = topFsVideo(entry);
+  tileVideos(entry).forEach((v) => { v.muted = fsAudioMuted ? true : (v !== top); });
+  if (!fsAudioMuted && top) {
+    try { top.volume = 1; top.play().catch(() => {}); } catch (e) { /* ignore */ }
+  }
+}
+function updateAudioBtn() {
+  if (!audioBtn) return;
+  audioBtn.innerHTML = fsAudioMuted ? SPK_OFF : SPK_ON;
+  audioBtn.setAttribute('aria-label', fsAudioMuted ? 'Turn on sound' : 'Mute');
+  audioBtn.setAttribute('aria-pressed', fsAudioMuted ? 'false' : 'true');
+}
+function showAudioBtn(entry) {
+  removeAudioBtn();
+  audioBtn = document.createElement('button');
+  audioBtn.type = 'button';
+  audioBtn.className = 'gc-audio-btn';
+  audioBtn.addEventListener('click', (e) => {
+    // A tap here toggles sound; it must not fall through to the tile handler
+    // that exits fullscreen.
+    e.stopPropagation();
+    fsAudioMuted = !fsAudioMuted;
+    applyFsAudio(entry);
+    updateAudioBtn();
+  });
+  updateAudioBtn();
+  entry.el.appendChild(audioBtn);
+}
+function removeAudioBtn() {
+  if (audioBtn && audioBtn.parentNode) audioBtn.parentNode.removeChild(audioBtn);
+  audioBtn = null;
+}
 
 // H265/HEVC decode support in this browser, resolved once per page. Many
 // desktop Chromium builds and most Raspberry Pi browsers cannot decode HEVC,
@@ -274,6 +340,10 @@ function enterFullscreen(entry, entries) {
     entry.streamEl = makeStreamEl(mainStreamName(entry.cam));
     entry.el.insertBefore(entry.streamEl, entry.el.firstChild);
   }
+  // Every fullscreen starts muted; the speaker button is the explicit opt-in.
+  fsAudioMuted = true;
+  applyFsAudio(entry);
+  showAudioBtn(entry);
   // On a real browser also take the OS fullscreen where allowed. Silent on
   // failure, and never on the kiosk (it is already full screen).
   if (!IS_KIOSK && document.documentElement.requestFullscreen) {
@@ -297,6 +367,9 @@ function startMainUpgrade(entry) {
     mainEl.removeEventListener('playing', onPlaying, true);
     clearTimeout(entry._mainTimer);
     entry._mainTimer = null;
+    // The visible layer just changed to the main stream; move the audio state
+    // onto it (unmuted follows the top video, muted keeps everything silent).
+    if (fullscreenEntry === entry) applyFsAudio(entry);
   };
   mainEl.addEventListener('playing', onPlaying, true);
   // Give up quietly if the main stream cannot start (H265 in a browser that
@@ -313,6 +386,12 @@ function exitFullscreen(entries) {
   const entry = fullscreenEntry;
   fullscreenEntry = null;
   if (!entry) return;
+  clearTimeout(popupTimer);
+  // Drop the speaker control and remute every video in the tile, so a camera
+  // returning to the grid is silent again.
+  removeAudioBtn();
+  fsAudioMuted = true;
+  tileVideos(entry).forEach((v) => { v.muted = true; });
   entry.el.classList.remove('fullscreen');
   // Drop the main overlay; the sub stream underneath never stopped playing,
   // so the grid is showing video again immediately. Cameras without a sub
@@ -448,6 +527,7 @@ let limit = 9;
 let layoutSig = null;   // detect a layout change on focus without a needless rebuild
 
 function teardown() {
+  clearTimeout(popupTimer);
   if (fullscreenEntry) exitFullscreen(entries);
   for (const entry of entries) { detachStream(entry); clearSnapshot(entry); cancelMainUpgrade(entry); }
   entries = [];
@@ -574,6 +654,23 @@ async function init() {
   // The on-screen menu switches the active layout; re-render at once rather
   // than waiting for the next poll below.
   window.addEventListener('gc:layout-switched', () => refresh(true));
+
+  // A Home Assistant camera pop-up (ha-events.js): expand the named camera to
+  // fullscreen and auto-exit after its seconds. Reuses the normal fullscreen
+  // path (sub stream plus main-overlay upgrade), so it behaves like a tap.
+  window.addEventListener('gc:popup-camera', (e) => {
+    const detail = e.detail || {};
+    const entry = entries.find((en) => en.cam.id === detail.cameraId);
+    if (!entry) return;   // camera not on the current layout: nothing to pop
+    if (fullscreenEntry && fullscreenEntry !== entry) exitFullscreen(entries);
+    if (entry.mode !== 'live') goLive(entry);   // a paused tile has no stream to expand
+    if (fullscreenEntry !== entry) enterFullscreen(entry, entries);
+    const secs = Number(detail.seconds) > 0 ? Number(detail.seconds) : 20;
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(() => {
+      if (fullscreenEntry === entry) exitFullscreen(entries);
+    }, secs * 1000);
+  });
   // The storage event only reaches tabs in the SAME browser; the kiosk and
   // other devices never see it (and the kiosk never refocuses), so also poll.
   // refresh(false) compares a signature and rebuilds only on a real change,

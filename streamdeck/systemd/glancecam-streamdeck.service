@@ -1,0 +1,27 @@
+[Unit]
+Description=GlanceCam Stream Deck controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as a normal user that belongs to the plugdev group (see the udev rule) so
+# the controller can claim the Stream Deck without root. The installer fills the
+# tokens below in when it writes this unit.
+User=__DECK_USER__
+Group=plugdev
+WorkingDirectory=__WORKDIR__
+# The Stream Deck library needs a runtime dir for the user; point it at the
+# per-user tmpfs systemd sets up.
+Environment=XDG_RUNTIME_DIR=/run/user/__DECK_UID__
+Environment=GLANCECAM_STREAMDECK_CONFIG=/etc/glancecam/streamdeck.toml
+# Keep the base URL and any API key out of the repo and the config file. Point
+# this at a file holding lines like GLANCECAM_STREAMDECK_BASE_URL=... and
+# GLANCECAM_STREAMDECK_API_KEY=...
+EnvironmentFile=-/etc/glancecam/streamdeck.env
+ExecStart=__VENV__/bin/python -m glancecam_streamdeck
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

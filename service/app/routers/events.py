@@ -40,7 +40,9 @@ _DEFAULT_POPUP_SECONDS = 20
 
 class CameraPopupPayload(BaseModel):
     camera: str = ""             # camera id or name; empty = the first camera
-    seconds: int = 0             # 0 = the default popup duration
+    # Accept a float so a caller (e.g. the Stream Deck, whose duration is a
+    # float) is never rejected; clamp_seconds rounds it to whole seconds.
+    seconds: float = 0           # 0 = the default popup duration
 
 
 class NotifyPayload(BaseModel):

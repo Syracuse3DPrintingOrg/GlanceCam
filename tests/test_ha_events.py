@@ -174,6 +174,19 @@ def test_camera_popup_from_lan_pops_and_polls(evstore):
     assert ev["seconds"] == 8
 
 
+def test_camera_popup_accepts_fractional_seconds(evstore):
+    # The Stream Deck sends a float duration; the endpoint must accept it (not
+    # 422) and round it to whole seconds rather than silently drop the pop-up.
+    from app.services import cameras as camera_store
+    cam = camera_store.add({"name": "Gate", "main_url": "rtsp://192.168.1.21/s"})
+    client = TestClient(app, client=("127.0.0.1", 5000))
+    r = client.post("/events/camera-popup", json={"camera": "Gate", "seconds": 12.5})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    ev = next(e for e in client.get("/events/poll?since=0").json()["events"]
+              if e["type"] == "camera" and e["camera_id"] == cam["id"])
+    assert ev["seconds"] == 12
+
+
 def test_notify_requires_message(evstore):
     client = TestClient(app, client=("127.0.0.1", 5000))
     assert client.post("/events/notify", json={"message": "  "}).json()["ok"] is False

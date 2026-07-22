@@ -10,12 +10,21 @@ the tab you keep open to see what is happening right now.
 
 ## What you get
 
-- One live grid of all your cameras, sized to fill the screen.
-- Click any tile to go fullscreen on that camera, click again to return.
+- One live grid of all your cameras, sized to fill the screen. Design your own
+  layouts by dragging tiles, or let GlanceCam arrange them and give an ultrawide
+  camera the room it needs.
+- Click any tile to go fullscreen on that camera, click again to return. In
+  fullscreen a speaker button turns the camera's audio on; the grid stays quiet.
 - Works in any browser on your LAN, and on a Raspberry Pi wired to a display
-  as a dedicated kiosk.
+  as a dedicated kiosk. On a Pi the web page is at `http://glance.local:9292`,
+  and a connected touchscreen is calibrated to the display's rotation.
 - Streaming handled for you by a bundled go2rtc engine (RTSP, ONVIF, and HTTP
   cameras in; WebRTC in the browser, with a snapshot fallback).
+- Cameras that come to you: a Home Assistant automation can pop the right
+  camera up full screen when it sees a person or motion, and the display
+  returns to the grid on its own.
+- Plug an Elgato Stream Deck into a Pi and every key becomes a live camera
+  thumbnail; press one to put that camera on the screen.
 - An optional password that locks the settings and camera list while leaving
   the live grid open.
 
@@ -78,7 +87,20 @@ sudo bash install.sh --rotation 90 --kiosk true
 ```
 
 See `install.sh --help` for the full list of flags and environment
-variables (`GLANCECAM_MODE`, `GLANCECAM_KIOSK`, `GLANCECAM_ROTATION`).
+variables (`GLANCECAM_MODE`, `GLANCECAM_KIOSK`, `GLANCECAM_ROTATION`,
+`GLANCECAM_HOSTNAME`, `GLANCECAM_TOUCH`, `GLANCECAM_STREAMDECK`).
+
+On a Pi the web page is also reachable by name at `http://glance.local:9292`.
+Set up a second GlanceCam Pi and it takes the next free name (`glance-2`,
+`glance-3`, and so on) so the two never clash.
+
+### Stream Deck
+
+Plug an Elgato Stream Deck into the Pi and the installer sets it up on its
+own. Each key shows a live thumbnail of one camera, refreshing about once a
+second; press a key to bring that camera up full screen on the display. With
+more cameras than keys, a "More" key pages through them. Turn it off (or force
+it on without a deck plugged in yet) with `GLANCECAM_STREAMDECK=false|true`.
 
 ## Run GlanceCam on a Windows PC
 

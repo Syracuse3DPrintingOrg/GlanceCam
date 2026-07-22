@@ -46,16 +46,16 @@ The controller is a standard Python package run as `python -m glancecam_streamde
 the config at `/etc/glancecam/streamdeck.toml`, and the systemd + udev units);
 wiring that into the installer is handled elsewhere. The pieces here are:
 
-- `glancecam_streamdeck/` — the package.
-- `systemd/glancecam-streamdeck.service` — a unit template. The installer fills
+- `glancecam_streamdeck/`: the package.
+- `systemd/glancecam-streamdeck.service`: a unit template. The installer fills
   in `__DECK_USER__`, `__DECK_UID__`, `__VENV__`, and `__WORKDIR__`, and points
   `GLANCECAM_STREAMDECK_CONFIG` at `/etc/glancecam/streamdeck.toml`.
-- `udev/99-glancecam-streamdeck.rules` — grants the controller access to the
+- `udev/99-glancecam-streamdeck.rules`: grants the controller access to the
   deck without root (Elgato vendor `0fd9`, `uaccess` tag plus the `plugdev`
   group).
-- `config.example.toml` — documented defaults (`base_url` is
+- `config.example.toml`: documented defaults (`base_url` is
   `http://127.0.0.1:9292`).
-- `requirements.txt` — `streamdeck`, `Pillow`, `httpx`.
+- `requirements.txt`: `streamdeck`, `Pillow`, `httpx`.
 
 To try it by hand:
 

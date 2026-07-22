@@ -874,6 +874,11 @@ install_streamdeck() {
   duid="$(id -u "$duser")"
   chown -R "$duser" "$workdir" "$venv" 2>/dev/null || true
 
+  # The deck records its last selection under its data dir; create and own it
+  # so the service user can write there (the config default is /var/lib/glancecam).
+  mkdir -p /var/lib/glancecam 2>/dev/null || true
+  chown "$duser" /var/lib/glancecam 2>/dev/null || true
+
   if [ ! -f "$unit_tpl" ]; then
     warn "Stream Deck unit template missing at $unit_tpl; skipping service"
     return 0
